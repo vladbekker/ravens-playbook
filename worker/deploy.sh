@@ -1,7 +1,5 @@
 #!/bin/sh
-# Publishes marlbororavens.com: copies the page and the backup playbook next to the Worker, then deploys it to Cloudflare.
+# Publishes marlbororavens.com by hand (Cloudflare also does this on its own after every push to GitHub).
 set -e
 cd "$(dirname "$0")"
-mkdir -p public
-cp ../index.html ../playbook.json public/
 npx wrangler deploy

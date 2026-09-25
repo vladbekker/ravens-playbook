@@ -8,6 +8,10 @@ routes = [
 ]
 workers_dev = true
 
+# before every deploy (here or in Cloudflare's GitHub builds): copy the page and the backup playbook next to the Worker
+[build]
+command = "mkdir -p public && cp ../index.html ../playbook.json public/"
+
 # the website itself (index.html and the backup playbook.json); /playbook and /save go to the code in src/
 [assets]
 directory = "./public"
