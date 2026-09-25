@@ -80,6 +80,7 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 .btn-primary:hover{ color:#fff; filter:brightness(1.12); }
 .btn-quiet{ border-color:transparent; background:transparent; color:var(--muted); padding-inline:10px; }
 .btn-quiet:hover{ background:var(--accent-soft); border-color:transparent; }
+.btn-quiet.on{ background:var(--accent-soft); color:var(--accent); }
 .btn-del:hover{ color:#c62828; background:#fdecec; }
 .btn-add{ justify-self:start; font-size:15px; padding:10px 20px; border:1.5px dashed var(--accent); color:var(--accent); background:transparent; }
 .btn-add:hover{ background:var(--accent-soft); }
@@ -251,6 +252,11 @@ const INK = "#16201a", BLUE = "#1d5fd1", RED = "#c62828", LOS = 243;
 const $ = id => document.getElementById(id);
 const show = (el, on) => el.toggleAttribute("hidden", !on);
 const copy = o => JSON.parse(JSON.stringify(o));
+/* on a flipped play, "left" reads "right" and the other way around */
+const swapSides = t => t.replace(/\b(left|right)\b/gi, w => {
+  const o = /^l/i.test(w) ? "right" : "left";
+  return w === w.toUpperCase() ? o.toUpperCase() : w[0] === w[0].toUpperCase() ? o[0].toUpperCase() + o.slice(1) : o;
+});
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
 const X = (x, y) => ({ t:"X", x, y });
 const ID_OK = /^[A-Za-z0-9_-]{1,40}$/;
@@ -571,10 +577,13 @@ function makeCard(p){
   const id = p.id, fallback = DEFAULTS[id] || starter();
   let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order, fav = !!p.fav;
   const original = copy(play);
-  let sel = -1, drag = null;
+  let sel = -1, drag = null, flipped = false;
+  /* Flip only changes how the play is drawn (mirrored left to right); the saved play stays as it is */
+  const mx = v => flipped ? 600 - v : v;
   const sec = document.createElement("section");
   sec.className = "play"; sec.id = id;
   sec.innerHTML = editor ? `<div class="top"><button class="star" id="${id}-fav" type="button" aria-label="Favorite play" aria-pressed="false">☆</button><input class="name" id="${id}-name" aria-label="Play name">
+  <button class="btn btn-quiet" id="${id}-flip" type="button" aria-pressed="false">Flip ⇆</button>
   <button class="btn btn-quiet" id="${id}-base" type="button">Save as default</button>
   <button class="btn btn-quiet" id="${id}-reset" type="button">Reset</button>
   <button class="btn btn-quiet btn-del" id="${id}-del" type="button">Delete</button></div>
@@ -587,7 +596,7 @@ function makeCard(p){
   <button class="btn" id="${id}-arrow" type="button">Remove arrow</button>
   <span class="spacer"></span>
   <button class="btn" id="${id}-done" type="button">Done</button>
-</div>` : `<div class="top"><span class="star-view" title="Favorite" hidden>★</span><h2 class="play-name"></h2><span class="spacer"></span><button class="btn btn-quiet" id="${id}-undo" type="button" hidden>Reset</button></div><p class="note-view"></p>
+</div>` : `<div class="top"><span class="star-view" title="Favorite" hidden>★</span><h2 class="play-name"></h2><span class="spacer"></span><button class="btn btn-quiet" id="${id}-undo" type="button" hidden>Reset</button><button class="btn btn-quiet" id="${id}-flip" type="button" aria-pressed="false">Flip ⇆</button></div><p class="note-view"></p>
 <div class="card"><svg viewBox="0 0 600 410" role="img" aria-label="Play card with X's and O's"></svg></div>`;
   $("plays").appendChild(sec);
   const svg = sec.querySelector("svg"), bar = sec.querySelector(".bar");
@@ -599,7 +608,7 @@ function makeCard(p){
   const E = (tag, a, parent) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); (parent || svg).appendChild(e); return e; };
   const T = (x, y, s, a) => { const t = E("text", Object.assign({ x, y, "font-family":FONT }, a)); t.textContent = s; return t; };
   function route(pl){
-    const pts = [[pl.x, pl.y]].concat(pl.r), n = pts.length;
+    const pts = [[mx(pl.x), pl.y]].concat(pl.r.map(q => [mx(q[0]), q[1]].concat(q.slice(2)))), n = pts.length;
     const color = pl.hi ? BLUE : INK, w = pl.hi ? 4 : 3;
     const a = pts[n - 2], b = pts[n - 1];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
@@ -616,29 +625,30 @@ function makeCard(p){
     svg.textContent = "";
     E("rect", { x:0, y:0, width:600, height:410, fill:"#fff" });
     E("line", { x1:0, x2:600, y1:LOS, y2:LOS, stroke:"#9aa3a0", "stroke-width":2, "stroke-dasharray":"12 7" });
-    T(18, 394, (play.name || "").toUpperCase(), { "font-size":22, "font-weight":800, fill:INK });
+    T(18, 394, (play.name || "").toUpperCase() + (flipped ? "  (FLIPPED)" : ""), { "font-size":22, "font-weight":800, fill:INK });
     T(582, 393, "O = us   X = them   - - - = throw", { "font-size":13, fill:"#6b7570", "text-anchor":"end" });
     play.players.forEach(pl => { if (pl.t === "O" && pl.r && pl.r.length) route(pl); });
     play.players.forEach((pl, i) => {
       if (pl.t === "X" && !showX) return;
       const g = E("g", { class:"drag", "data-kind":"player", "data-i":i });
       if (pl.t === "O"){
-        E("circle", { cx:pl.x, cy:pl.y, r:17, fill:"#fff", stroke:pl.hi ? BLUE : INK, "stroke-width":3 }, g);
+        E("circle", { cx:mx(pl.x), cy:pl.y, r:17, fill:"#fff", stroke:pl.hi ? BLUE : INK, "stroke-width":3 }, g);
         const l = pl.l || "", size = l.length <= 1 ? 16 : l.length <= 2 ? 13 : l.length <= 4 ? 11 : 9;
-        const t = E("text", { x:pl.x, y:pl.y + size * 0.36, "text-anchor":"middle", "font-size":size, "font-weight":800, fill:INK, "font-family":FONT }, g);
+        const t = E("text", { x:mx(pl.x), y:pl.y + size * 0.36, "text-anchor":"middle", "font-size":size, "font-weight":800, fill:INK, "font-family":FONT }, g);
         t.textContent = l;
       } else {
-        E("circle", { cx:pl.x, cy:pl.y, r:18, fill:"transparent" }, g);
-        E("path", { d:`M${pl.x - 10},${pl.y - 10} L${pl.x + 10},${pl.y + 10} M${pl.x + 10},${pl.y - 10} L${pl.x - 10},${pl.y + 10}`, stroke:RED, "stroke-width":4, "stroke-linecap":"round" }, g);
+        const px = mx(pl.x);
+        E("circle", { cx:px, cy:pl.y, r:18, fill:"transparent" }, g);
+        E("path", { d:`M${px - 10},${pl.y - 10} L${px + 10},${pl.y + 10} M${px + 10},${pl.y - 10} L${px - 10},${pl.y + 10}`, stroke:RED, "stroke-width":4, "stroke-linecap":"round" }, g);
       }
     });
     const s = play.players[sel];
     if (!s || (s.t === "X" && !showX)) return;
-    E("circle", { cx:s.x, cy:s.y, r:24, fill:"none", stroke:BLUE, "stroke-width":2.5, "stroke-dasharray":"5 4" });
+    E("circle", { cx:mx(s.x), cy:s.y, r:24, fill:"none", stroke:BLUE, "stroke-width":2.5, "stroke-dasharray":"5 4" });
     if (s.t === "O") (s.r || []).forEach((q, k) => {
       const g = E("g", { class:"drag", "data-kind":"pt", "data-k":k });
-      E("circle", { cx:q[0], cy:q[1], r:20, fill:"transparent" }, g);
-      E("circle", { cx:q[0], cy:q[1], r:8, fill:"#fff", stroke:BLUE, "stroke-width":3 }, g);
+      E("circle", { cx:mx(q[0]), cy:q[1], r:20, fill:"transparent" }, g);
+      E("circle", { cx:mx(q[0]), cy:q[1], r:8, fill:"#fff", stroke:BLUE, "stroke-width":3 }, g);
     });
   }
   function fill(){
@@ -653,7 +663,7 @@ function makeCard(p){
       sec.querySelector(".play-name").textContent = play.name || "Untitled";
       show(sec.querySelector(".star-view"), fav);
       const nv = sec.querySelector(".note-view");
-      nv.textContent = play.note || "";
+      nv.textContent = flipped ? swapSides(play.note || "") : (play.note || "");
       show(nv, !!play.note);
     }
   }
@@ -673,7 +683,7 @@ function makeCard(p){
     }
     draw();
   };
-  const toSvg = e => { const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; };
+  const toSvg = e => { const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [mx(q.x), q.y]; };
   svg.addEventListener("pointerdown", e => {
     const g = e.target.closest(".drag");
     if (!g){ if (sel !== -1) select(-1); return; }
@@ -705,6 +715,11 @@ function makeCard(p){
   svg.addEventListener("pointercancel", stop);
   svg.addEventListener("touchstart", e => { if (e.target.closest(".drag")) e.preventDefault(); }, { passive:false });
   if (!editor) f("undo").addEventListener("click", () => { play = copy(original); select(-1); show(f("undo"), false); });
+  f("flip").addEventListener("click", () => {
+    flipped = !flipped;
+    const b = f("flip"); b.classList.toggle("on", flipped); b.setAttribute("aria-pressed", String(flipped));
+    fill(); draw();
+  });
 
   if (editor){
     const cur = () => play.players[sel];
