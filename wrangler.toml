@@ -1,0 +1,28 @@
+# Cloudflare settings for marlbororavens.com. Cloudflare deploys this repo on every push to main
+# ("npx wrangler deploy" from the repo root); `npm run deploy` does the same by hand.
+name = "ravens-playbook"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+routes = [
+  { pattern = "marlbororavens.com/*", zone_name = "marlbororavens.com" },
+  { pattern = "www.marlbororavens.com/*", zone_name = "marlbororavens.com" }
+]
+
+# The website itself: public/index.html (the playbook page) and public/playbook.json (backup copy of the plays).
+# The Worker code runs first: it sends http:// and www. to https://marlbororavens.com and answers /playbook and /save.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# Where the plays live, with the last 30 saved versions. The STAFF_KEY_HASH secret is set on the Worker, not here.
+[[d1_databases]]
+binding = "DB"
+database_name = "ravens-playbook"
+database_id = "b39b18d7-1520-467c-9bec-dabf6dfb4f14"
+
+# `npm run dev` and the tests: local requests keep a local host name (instead of pretending to be
+# marlbororavens.com), so the http:// to https:// redirect only ever happens on the real site.
+[dev]
+host = "localhost"

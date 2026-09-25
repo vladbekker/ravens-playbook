@@ -23,10 +23,11 @@ async function setup(env){
   ]);
   ready = true;
 }
-async function current(env){
+async function current(env, req){
   const row = await env.DB.prepare("SELECT data, rev FROM playbook WHERE id = 1").first();
   if (row) return { data: row.data, rev: row.rev };
-  const res = await fetch(`${env.SEED_URL}?t=${Date.now()}`);
+  // before the first coach save, start from the backup copy that ships with the site
+  const res = await env.ASSETS.fetch(new Request(new URL("/playbook.json", req.url)));
   if (!res.ok) return null;
   const data = await res.text();
   let rev = null;
@@ -50,7 +51,7 @@ export default {
 
     if (url.pathname === "/playbook" && req.method === "GET"){
       await setup(env);
-      const cur = await current(env);
+      const cur = await current(env, req);
       return cur ? reply(cur.data, 200, origin, true) : reply({ error: "missing" }, 404, origin);
     }
 
@@ -64,7 +65,7 @@ export default {
       if (!env.STAFF_KEY_HASH || await sha256hex(key) !== env.STAFF_KEY_HASH) return reply({ error: "not_coach" }, 403, origin);
       const text = JSON.stringify(data);
       if (text.length > MAX_BYTES) return reply({ error: "too_large" }, 413, origin);
-      const cur = await current(env);
+      const cur = await current(env, req);
       if (cur && cur.rev && prevRev !== cur.rev) return reply({ error: "conflict", rev: cur.rev }, 409, origin);
       const now = new Date().toISOString();
       // keep the old version, then replace it only if nobody saved in between (compare-and-set on rev)

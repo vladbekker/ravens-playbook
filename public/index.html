@@ -122,7 +122,6 @@ input[type=checkbox]{ accent-color:var(--accent); }
 .savebar{ position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background:#fff; border-top:1px solid var(--line); box-shadow:0 -8px 24px rgba(27,21,49,.12); font-weight:600; }
 :focus-visible{ outline:3px solid var(--accent); outline-offset:2px; }
 /* hidden for now: the team only needs to open and view the playbook */
-#setup-btn, #lock-btn, #saving-group{ display:none !important; }
 .brand-wait .mark, .brand-wait .mark-img, .brand-wait .t1, .brand-wait .title-img, .brand-wait .hero-mark{ visibility:hidden; }
 .text-input{ font:inherit; font-size:15px; padding:9px 12px; width:24em; max-width:100%; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
 .text-input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
@@ -150,25 +149,12 @@ input[type=checkbox]{ accent-color:var(--accent); }
     <div class="jump" id="jump"></div>
     <div class="nav-tools">
       <label class="btn" for="showX"><input type="checkbox" id="showX" checked> Show X's</label>
-      <button class="btn" id="setup-btn" type="button" hidden>Coach setup</button>
       <button class="btn" id="settings-btn" type="button" aria-expanded="false" aria-controls="settings" hidden>Settings</button>
-      <button class="btn btn-quiet" id="lock-btn" type="button">Lock</button>
     </div>
   </div>
 </nav>
 <main class="wrap">
   <p class="status" id="status" role="status" hidden></p>
-  <section class="settings" id="setup" aria-labelledby="setup-title" hidden>
-    <div class="set-group">
-      <h2 id="setup-title">Set up coach access</h2>
-      <p class="msg">1. Pick a coach code only coaches will know: 8 to 24 letters or numbers, different from the team PIN.</p>
-      <input class="pin-input" id="setup-code" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="24" placeholder="Coach code" aria-label="Coach code">
-      <p class="msg">2. Paste a GitHub token so coaches can save. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Make one here</a>: give it access to only the <b>ravens-playbook</b> repository, with <b>Contents</b> set to <b>Read and write</b>.</p>
-      <input class="text-input" id="setup-token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_&hellip;" aria-label="GitHub token">
-      <div class="logo-row"><button class="btn btn-primary" id="setup-go" type="button">Turn on coach view</button><button class="btn" id="setup-cancel" type="button">Cancel</button></div>
-      <p class="msg" id="setup-msg" role="status"></p>
-    </div>
-  </section>
   <section class="settings" id="settings" aria-label="Settings" hidden>
     <div class="set-group">
       <h2>Team logo</h2>
@@ -208,15 +194,6 @@ input[type=checkbox]{ accent-color:var(--accent); }
       </div>
       <p class="msg" id="coach-state"></p>
     </div>
-    <div class="set-group" id="saving-group">
-      <h2>Saving</h2>
-      <p class="msg" id="token-state"></p>
-      <p class="msg"><a href="https://github.com/settings/personal-access-tokens/new?name=Ravens+playbook&amp;description=Lets+coaches+save+plays+on+marlbororavens.com&amp;expires_in=366&amp;contents=write" target="_blank" rel="noopener">Get a saving key from GitHub</a>. On that page, under <b>Repository access</b>, choose <b>Only select repositories</b> and pick <b>ravens-playbook</b>, then click <b>Generate token</b> and copy it. The key lasts a year.</p>
-      <div class="logo-row">
-        <input class="text-input" id="token-new" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the key here" aria-label="GitHub saving key">
-        <button class="btn" id="token-set" type="button">Use this key</button>
-      </div>
-    </div>
     <p class="msg" id="set-msg" role="status"></p>
     <div><button class="btn" id="settings-done" type="button">Done</button></div>
   </section>
@@ -246,16 +223,10 @@ input[type=checkbox]{ accent-color:var(--accent); }
 </div>
 <script>
 (() => {
-/* the claude.ai copy keeps its page markup in a <template> so it can publish itself again */
-const tplEl = document.getElementById("app-tpl"), APP_MARKUP = tplEl ? tplEl.innerHTML : "";
-if (tplEl) tplEl.replaceWith(tplEl.content.cloneNode(true));
 "use strict";
-/* The shared playbook is playbook.json in this site's GitHub repo; coaches save by updating that file. */
-const REPO = "vladbekker/ravens-playbook", DATA_PATH = "playbook.json", BRANCH = "main";
-/* true only in the claude.ai copy: coaches edit there and it saves by publishing itself; the website only shows plays */
-const EDITOR_BUILD = false;
-/* coaches save through the playbook server, a free Cloudflare Worker; playbook.json is only a backup copy */
-const API = "https://ravens-playbook.ravens-playbook-api.workers.dev";
+/* The playbook server (src/worker.js) runs on this same site: GET /playbook loads it, POST /save stores a coach's save.
+   /playbook.json is only a backup copy, used if the server can't be reached. */
+const PLAYBOOK_URL = "/playbook", SAVE_URL = "/save", BACKUP_URL = "/playbook.json";
 
 const NS = "http://www.w3.org/2000/svg";
 const FONT = "system-ui,-apple-system,sans-serif";
@@ -280,7 +251,7 @@ const store = {
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k){ try { localStorage.removeItem(k); } catch (e) {} }
 };
-const PUB_KEY = "playbook-published-v1", BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v2";
+const BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v2";
 
 /* Factory versions of the built-in plays: what Reset goes back to until "Save as default" is used */
 const PLAYS = [
@@ -394,45 +365,29 @@ function readData(s){
     open:!lock && s.open && Array.isArray(s.open.plays) ? s.open : null };
 }
 
-/* The PIN locks the plays: they're stored scrambled (AES) with a key made from the PIN.
-   Each coach PIN opens a small box holding the staff key, and the staff key opens the box with the
-   team PIN and the GitHub saving key. So coaches can be added or removed, and the team PIN or saving
-   key changed, without anyone knowing the other coaches' PINs.
-   Browsers only give https pages their built-in scrambler (crypto.subtle), so on plain http
-   the page loads the same math (PBKDF2 + AES-GCM) from the noble libraries instead. */
+/* The team PIN locks the plays: they're stored scrambled (AES) with a key made from the PIN.
+   Each coach PIN opens a small box holding the staff key; the staff key opens the box with the team PIN,
+   and the playbook server only accepts saves that come with the staff key. So coaches can be added or
+   removed, and the team PIN changed, without anyone knowing the other coaches' PINs. */
 const enc = new TextEncoder();
 function toB64(bytes){ let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768)); return btoa(s); }
 function fromB64(str){ const s = atob(str), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
-let nobleLib = null;
-function noble(){
-  return nobleLib || (nobleLib = Promise.all([
-    import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/pbkdf2/+esm"),
-    import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/sha256/+esm"),
-    import("https://cdn.jsdelivr.net/npm/@noble/ciphers@1.0.0/aes/+esm")
-  ]).then(([p, h, a]) => ({ pbkdf2:p.pbkdf2Async, sha256:h.sha256, gcm:a.gcm }), () => {
-    nobleLib = null;
-    throw Object.assign(new Error("Couldn't load the unlock code. Check the internet connection and try again."), { offline:true });
-  }));
-}
 async function aesGcm(mode, pin, salt, iter, iv, bytes){
-  if (window.crypto && crypto.subtle){
-    const raw = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
-    const key = await crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:iter, hash:"SHA-256" }, raw, { name:"AES-GCM", length:256 }, false, [mode]);
-    return new Uint8Array(await crypto.subtle[mode]({ name:"AES-GCM", iv }, key, bytes));
-  }
-  const n = await noble();
-  const key = await n.pbkdf2(n.sha256, enc.encode(pin), salt, { c:iter, dkLen:32 });
-  return n.gcm(key, iv)[mode](bytes);
+  /* browsers only offer this on https pages; marlbororavens.com always sends http:// to https:// */
+  if (!window.crypto || !crypto.subtle) throw Object.assign(new Error("Open the playbook at https://marlbororavens.com to unlock it."), { cantUnlock:true });
+  const raw = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:iter, hash:"SHA-256" }, raw, { name:"AES-GCM", length:256 }, false, [mode]);
+  return new Uint8Array(await crypto.subtle[mode]({ name:"AES-GCM", iv }, key, bytes));
 }
 async function lockBox(obj, pin, iter = 300000){
   const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
   const data = await aesGcm("encrypt", pin, salt, iter, iv, enc.encode(JSON.stringify(obj)));
   return { salt:toB64(salt), iv:toB64(iv), iter, data:toB64(data) };
 }
-/* null means the PIN is wrong; an error with .offline means the unlock code couldn't load */
+/* null means the PIN is wrong; an error with .cantUnlock means this page can't unlock anything (not https) */
 async function unlockBox(box, pin){
   try { return JSON.parse(new TextDecoder().decode(await aesGcm("decrypt", pin, fromB64(box.salt), box.iter, fromB64(box.iv), fromB64(box.data)))); }
-  catch (e) { if (e && e.offline) throw e; return null; }
+  catch (e) { if (e && e.cantUnlock) throw e; return null; }
 }
 
 /* ---------- branding: logo and title image ---------- */
@@ -554,9 +509,9 @@ async function readUpload(file, maxSide, allWhite){
 
 /* ---------- session: team view (read only) or coach view (edit and save) ---------- */
 let DATA = { rev:"", logo:null, title:null, lock:null, staff:null, coaches:[], open:null };
-let editor = false, teamPin = null, coachCode = null, token = null, staffKey = null, myBox = null, teamPayload = null;
-let saving = false, changes = 0, lastSaveError = null;
-let pendingPin = null, pendingCoaches = null, pendingToken = null, dirty = false, showX = true, draftTimer = null;
+let editor = false, teamPin = null, staffKey = null, myBox = null;
+let saving = false, changes = 0;
+let pendingPin = null, pendingCoaches = null, dirty = false, showX = true, draftTimer = null;
 const cards = new Map();
 function status(t, ms){
   const s = $("status");
@@ -837,31 +792,14 @@ function renderPlays(plays){
 }
 $("showX").addEventListener("change", e => { showX = e.target.checked; cards.forEach(c => c.draw()); });
 
-/* ---------- saving: coaches write playbook.json in the GitHub repo ---------- */
-async function gh(method, path, tok, body){
-  let r;
-  try {
-    r = await fetch(`https://api.github.com/repos/${REPO}/${path}`, { method, cache:"no-store",
-      headers:Object.assign({ Accept:"application/vnd.github+json", Authorization:"Bearer " + tok, "X-GitHub-Api-Version":"2022-11-28" }, body ? { "Content-Type":"application/json" } : {}),
-      body:body ? JSON.stringify(body) : undefined });
-  } catch (e) { throw Object.assign(new Error("Couldn't reach GitHub. Check the internet connection and try again."), { status:0 }); }
-  if (r.ok) return r.json();
-  const msg = r.status === 401 || r.status === 403 ? "GitHub didn't accept the saving token. Paste a new one in Settings (ravens-playbook, Contents: Read and write)."
-    : r.status === 409 || r.status === 422 ? "Another coach saved at the same time. Reload the page, then make your change again."
-    : "Couldn't save to GitHub. Try again.";
-  throw Object.assign(new Error(msg), { status:r.status });
-}
-async function checkToken(tok){
-  try { await gh("GET", `contents/${DATA_PATH}?ref=${BRANCH}`, tok); return true; } catch (e) { return false; }
-}
+/* ---------- saving: coaches save through the playbook server ---------- */
 async function saveForTeam(){
   const btn = $("save");
-  const tok = pendingToken || token, pin = pendingPin || teamPin, coaches = pendingCoaches || DATA.coaches;
-  if (!tok && !EDITOR_BUILD && !API){ askForKey(); return false; }
+  const pin = pendingPin || teamPin, coaches = pendingCoaches || DATA.coaches;
   if (!pin){ status("Set a team PIN in Settings first."); return false; }
   if (!staffKey || !coaches.length){ status("Add a coach PIN in Settings first."); return false; }
   if (saving) return false;
-  saving = true; lastSaveError = null; btn.disabled = true; btn.textContent = "Saving…";
+  saving = true; btn.disabled = true; btn.textContent = "Saving…";
   const done = () => { saving = false; btn.disabled = false; btn.textContent = "Save for the team"; };
   const seen = changes, before = DATA.rev;
   saveDraft();
@@ -869,67 +807,31 @@ async function saveForTeam(){
   try {
     out = { v:3, rev:Date.now().toString(36) + Math.random().toString(36).slice(2, 7), logo, title, edge:3,
       lock:await lockBox({ plays:collectPlays() }, pin),
-      staff:await lockBox({ teamPin:pin, token:tok }, staffKey, 1000),
+      staff:await lockBox({ teamPin:pin }, staffKey, 1000),
       coaches:coaches.map(c => ({ name:c.name, box:c.box })) };
-  } catch (e){ done(); lastSaveError = e; status("Couldn't lock the playbook with the PIN. Try again."); return false; }
-  if (API){
-    try { await apiSave(out, before); }
-    catch (e){ done(); lastSaveError = e; status(e.message, 12000); return false; }
-  }
-  if (!API && EDITOR_BUILD){
-    /* the claude.ai copy saves by publishing itself with the new data; every open copy reloads to it */
-    store.del(DRAFT_KEY);
-    try { await publishHere(out); }
-    catch (e){ saveDraft(); done(); lastSaveError = e; status(e.message, 12000); return false; }
-    return true;
-  }
-  if (!API) try {
-    let cur = null;
-    try { cur = await gh("GET", `contents/${DATA_PATH}?ref=${BRANCH}`, tok); } catch (e) { if (e.status !== 404) throw e; }
-    if (cur){
-      let curRev = null;
-      try { curRev = JSON.parse(new TextDecoder().decode(fromB64((cur.content || "").replace(/\s/g, "")))).rev; } catch (e) {}
-      if (curRev && DATA.rev && curRev !== DATA.rev) throw new Error("Another coach saved changes a moment ago. Reload the page to get them, then make your change again.");
-    }
-    await gh("PUT", `contents/${DATA_PATH}`, tok, { message:"Update playbook", content:toB64(enc.encode(JSON.stringify(out))), sha:cur ? cur.sha : undefined, branch:BRANCH });
-  } catch (e){ done(); lastSaveError = e; status(e.message || "Couldn't save. Try again."); return false; }
-  DATA = readData(out); teamPin = pin; token = tok;
-  store.set(PUB_KEY, { rev:out.rev, prev:before, at:Date.now() });
+  } catch (e){ done(); status("Couldn't lock the playbook with the PIN. Try again."); return false; }
+  try { await sendSave(out, before); }
+  catch (e){ done(); status(e.message, 12000); return false; }
+  DATA = readData(out); teamPin = pin;
   store.set(BRAND_KEY, { logo, title });
   if (changes === seen){
-    pendingPin = pendingCoaches = pendingToken = null;
+    pendingPin = pendingCoaches = null;
     store.del(DRAFT_KEY); dirty = false; show($("savebar"), false);
-    status(API ? "Saved. Everyone sees it right away." : "Saved. Everyone sees it in about a minute.", 6000);
+    status("Saved. Everyone sees it right away.", 6000);
   } else {
     /* something changed while saving: keep it for the next save */
     if (pendingPin === pin) pendingPin = null;
-    if (pendingToken === tok) pendingToken = null;
     if (pendingCoaches === coaches) pendingCoaches = null;
     saveDraft();
     status("Saved. You changed more while it was saving, so tap “Save for the team” again.", 8000);
   }
-  done(); updateSettingsText(); show($("setup-btn"), false);
+  done(); updateSettingsText();
   return true;
 }
-const PAGE_HEAD = `<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="robots" content="noindex, nofollow">
-<title>Ravens Marlboro Playbook</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=block" rel="stylesheet">`;
-const SCRIPT = "scr" + "ipt";
-/* the whole page again, from its own markup, style and code, with the new playbook data inside */
-function buildPage(data){
-  const json = JSON.stringify(data).replace(/</g, "\\u003c");
-  return `<!doctype html>\n<html lang="en">\n<head>\n${PAGE_HEAD}\n<style id="app-style">${$("app-style").textContent}</style>\n</head>\n<body>\n`
-    + `<template id="app-tpl">${APP_MARKUP}</template>\n<${SCRIPT} type="application/json" id="state">${json}</${SCRIPT}>\n`
-    + `<${SCRIPT} id="app-js">${$("app-js").textContent}</${SCRIPT}>\n</body>\n</html>\n`;
-}
-async function apiSave(data, prevRev){
+async function sendSave(data, prevRev){
   let r;
   try {
-    r = await fetch(`${API}/save`, { method:"POST", cache:"no-store", headers:{ "Content-Type":"application/json" },
+    r = await fetch(SAVE_URL, { method:"POST", cache:"no-store", headers:{ "Content-Type":"application/json" },
       body:JSON.stringify({ key:staffKey, data, prevRev }) });
   } catch (e){ throw new Error("Couldn't reach the playbook server. Check the internet connection and try again."); }
   if (r.ok) return;
@@ -939,34 +841,12 @@ async function apiSave(data, prevRev){
     : code === "too_large" ? "The playbook got too big to save. Try smaller logo images."
     : "Couldn't save. Try again.");
 }
-async function publishHere(data){
-  const artifact = window.claude && window.claude.use ? await window.claude.use("artifact") : null;
-  if (!artifact) throw new Error("Saving only works in the claude.ai playbook.");
-  try { await artifact.publish(buildPage(data)); }
-  catch (e){
-    const code = e && e.code;
-    throw new Error(code === "conflict" ? "Someone else saved first. The page is reloading with their version; make your change again."
-      : code === "not_writer" || code === "not_granted" || code === "consent_required" ? "Only the playbook's owner can save here."
-      : code === "too_large" ? "The playbook got too big to save. Try smaller logo images."
-      : code === "rate_limited" ? "Saving too often. Wait a minute, then try again."
-      : "Couldn't save. Try again.");
-  }
-}
-/* one time only: saving needs a GitHub key, so open Settings at that spot */
-function askForKey(){
-  show($("settings"), true); $("settings-btn").setAttribute("aria-expanded", "true");
-  $("token-state").textContent = "One time only: to save for the team, paste a GitHub saving key here. Your changes save as soon as you tap “Use this key”.";
-  $("token-new").closest(".set-group").scrollIntoView({ block:"center" });
-  status("Saving needs a one-time GitHub key. See Settings below.", 8000);
-}
 
 /* ---------- coach settings ---------- */
 function updateSettingsText(){
   $("pin-state").textContent = pendingPin ? "New team PIN is ready. Tap “Save for the team” to use it."
     : teamPin ? "Players use the team PIN to open the playbook." : "No team PIN yet. Set one so players can open the playbook.";
   $("coach-state").textContent = pendingCoaches ? "Coach list changed. Tap “Save for the team” to use it." : "";
-  $("token-state").textContent = pendingToken ? "New key is ready. Tap “Save for the team” to use it."
-    : token ? "Saving to GitHub is connected." : "Saving needs a GitHub key one time. Paste it here.";
   renderCoaches();
 }
 function renderCoaches(){
@@ -1030,22 +910,6 @@ $("coach-set").addEventListener("click", async () => {
   $("coach-name").value = ""; $("coach-new").value = "";
   updateSettingsText(); markDirty(); setMsg(`${name} is added. Tap “Save for the team” so their PIN works.`);
 });
-$("token-set").addEventListener("click", async () => {
-  const v = $("token-new").value.trim(), btn = $("token-set");
-  if (!v || btn.disabled) return;
-  btn.disabled = true; setMsg("Checking the key…");
-  try {
-    if (!(await checkToken(v))){ setMsg("GitHub didn't accept that key. Make sure ravens-playbook is picked under Repository access, then copy a new key."); return; }
-    pendingToken = v; $("token-new").value = ""; updateSettingsText();
-    if (!dirty){ markDirty(); setMsg("Key is ready. Tap “Save for the team” to use it."); return; }
-    setMsg("Saving…");
-    if (await saveForTeam()) setMsg("Saved. Everyone sees it in about a minute.");
-    else if (lastSaveError && (lastSaveError.status === 401 || lastSaveError.status === 403)){
-      pendingToken = null; updateSettingsText();
-      setMsg("That key can look but not save. Use the link above to make a new key, pick ravens-playbook, and paste it here.");
-    } else setMsg(lastSaveError ? lastSaveError.message : "Couldn't save. Try again.");
-  } finally { btn.disabled = false; }
-});
 $("add").addEventListener("click", () => {
   const id = "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const s = starter();
@@ -1057,27 +921,8 @@ $("add").addEventListener("click", () => {
 });
 twoTap($("discard"), "Discard", "Tap again to discard", () => { clearTimeout(draftTimer); store.del(DRAFT_KEY); location.reload(); });
 $("save").addEventListener("click", () => saveForTeam());
-$("lock-btn").addEventListener("click", () => { store.del(CODE_KEY); location.reload(); });
 
-/* ---------- one-time coach setup (shown only until coach access exists) ---------- */
-$("setup-btn").addEventListener("click", () => { show($("setup"), true); show($("setup-btn"), false); $("setup-code").focus(); });
-$("setup-cancel").addEventListener("click", () => { show($("setup"), false); show($("setup-btn"), !editor && !DATA.coaches.length); });
-$("setup-go").addEventListener("click", async () => {
-  const code = $("setup-code").value.trim(), tok = $("setup-token").value.trim(), msg = t => { $("setup-msg").textContent = t; };
-  if (!COACH_OK.test(code)){ msg("Use 8 to 24 letters or numbers for the coach PIN."); return; }
-  if (code === teamPin){ msg("The coach PIN has to be different from the team PIN."); return; }
-  if (!tok){ msg("Paste the GitHub key too."); return; }
-  msg("Checking the key…");
-  if (!(await checkToken(tok))){ msg("GitHub didn't accept that key. Make sure ravens-playbook is picked under Repository access, then copy a new key."); return; }
-  const key = toB64(crypto.getRandomValues(new Uint8Array(32)));
-  const entry = { name:"Coach", box:await lockBox({ k:key }, code) };
-  $("setup-code").value = ""; $("setup-token").value = ""; msg("");
-  start({ editor:true, payload:teamPayload, teamPin, token:tok, staffKey:key, coachCode:code, myBox:entry.box.data });
-  pendingCoaches = [entry]; markDirty();
-  saveForTeam();
-});
-
-/* ---------- start: load playbook.json, then the PIN ---------- */
+/* ---------- start: load the playbook, then the PIN ---------- */
 async function tryCode(code){
   if (DATA.lock){
     const p = await unlockBox(DATA.lock, code);
@@ -1090,18 +935,15 @@ async function tryCode(code){
     const st = await unlockBox(DATA.staff, k.k);
     if (!st || typeof st.teamPin !== "string") return null;
     const p = DATA.lock ? await unlockBox(DATA.lock, st.teamPin) : DATA.open;
-    return p ? { editor:true, payload:p, teamPin:st.teamPin, token:typeof st.token === "string" ? st.token : null, staffKey:k.k, coachCode:code, myBox:c.box.data } : null;
+    return p ? { editor:true, payload:p, teamPin:st.teamPin, staffKey:k.k, myBox:c.box.data } : null;
   }
   return null;
 }
 function start(r){
-  editor = !!r.editor && (EDITOR_BUILD || !!API); teamPin = r.teamPin || null; coachCode = r.coachCode || null; token = r.token || null;
-  staffKey = r.staffKey || null; myBox = r.myBox || null; teamPayload = r.payload;
+  editor = !!r.editor; teamPin = r.teamPin || null; staffKey = r.staffKey || null; myBox = r.myBox || null;
   let plays = readPlays(r.payload);
   if (editor){
-    const d = store.get(DRAFT_KEY), pub = store.get(PUB_KEY);
-    const publishing = pub && pub.prev === DATA.rev && pub.rev !== DATA.rev && Date.now() - num(pub.at, 0) < 15 * 60 * 1000;
-    if (publishing) status("Your last save is still being published. Reload in a minute before you change anything else.", 30000);
+    const d = store.get(DRAFT_KEY);
     if (d && d.rev === DATA.rev && Array.isArray(d.plays)){
       plays = readPlays(d);
       logo = d.logo === null ? null : (validImg(d.logo) || logo);
@@ -1111,13 +953,12 @@ function start(r){
       if (dc.length) pendingCoaches = dc;
       dirty = true;
       applyBranding();
-    } else if (d && !publishing) store.del(DRAFT_KEY);
+    } else if (d) store.del(DRAFT_KEY);
   }
-  show($("gate"), false); show($("setup"), false);
+  show($("gate"), false);
   renderPlays(plays);
   show($("toolbar"), true);
   show($("settings-btn"), editor); show($("add"), editor);
-  show($("setup-btn"), !editor && !DATA.coaches.length);
   show($("savebar"), editor && dirty);
   $("knockout").checked = knockout;
   updateSettingsText();
@@ -1167,10 +1008,8 @@ notice.textContent = "Loading the playbook…";
 show(notice, true);
 (async () => {
   let raw = null;
-  const embedded = document.getElementById("state");
-  if (embedded){ try { raw = JSON.parse(embedded.textContent); } catch (e) {} }
-  if (!raw && API) try { const res = await fetch(`${API}/playbook`, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
-  if (!raw && !embedded) try { const res = await fetch(`${DATA_PATH}?t=${Date.now()}`, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
+  try { const res = await fetch(PLAYBOOK_URL, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
+  if (!raw) try { const res = await fetch(`${BACKUP_URL}?t=${Date.now()}`, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
   if (!raw){ brandReady(); notice.textContent = "Couldn't load the playbook. Check the internet connection and reload the page."; return; }
   DATA = readData(raw);
   logo = DATA.logo; title = DATA.title;
@@ -1179,12 +1018,12 @@ show(notice, true);
   show(notice, false);
   if (!DATA.lock && DATA.open){ start({ editor:false, payload:DATA.open, teamPin:null }); return; }
   const saved = store.get(CODE_KEY);
-  let r = null, offline = false;
-  if (typeof saved === "string" && saved){ try { r = await tryCode(saved); } catch (x) { offline = true; } }
+  let r = null, cantUnlock = false;
+  if (typeof saved === "string" && saved){ try { r = await tryCode(saved); } catch (x) { cantUnlock = true; } }
   /* marlbororavens.com/#coach always asks, so a coach can switch from a remembered team PIN */
   const wantsCoach = location.hash === "#coach" && r && !r.editor;
   if (r && !wantsCoach) start(r);
-  else { if (saved && !offline && !wantsCoach) store.del(CODE_KEY); showGate(); }
+  else { if (saved && !cantUnlock && !wantsCoach) store.del(CODE_KEY); showGate(); }
 })();
 })();
 </script>
