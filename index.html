@@ -251,7 +251,7 @@ const store = {
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k){ try { localStorage.removeItem(k); } catch (e) {} }
 };
-const BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v2";
+const PUB_KEY = "playbook-published-v1", BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v2";
 
 /* Factory versions of the built-in plays: what Reset goes back to until "Save as default" is used */
 const PLAYS = [
@@ -525,6 +525,7 @@ async function readUpload(file, maxSide, allWhite){
 /* ---------- session: team view (read only) or coach view (edit and save) ---------- */
 let DATA = { rev:"", logo:null, title:null, lock:null, staff:null, coaches:[], open:null };
 let editor = false, teamPin = null, coachCode = null, token = null, staffKey = null, myBox = null, teamPayload = null;
+let saving = false, changes = 0, lastSaveError = null;
 let pendingPin = null, pendingCoaches = null, pendingToken = null, dirty = false, showX = true, draftTimer = null;
 const cards = new Map();
 function status(t, ms){
@@ -537,7 +538,7 @@ function collectPlays(){ return [...cards.values()].sort((a, b) => a.order() - b
 function saveDraft(){ clearTimeout(draftTimer); store.set(DRAFT_KEY, { rev:DATA.rev, plays:collectPlays(), logo, title, pin:pendingPin, coaches:pendingCoaches }); }
 function markDirty(){
   if (!editor) return;
-  dirty = true; show($("savebar"), true);
+  dirty = true; changes++; show($("savebar"), true);
   clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
 }
 function twoTap(btn, label, confirmLabel, action){
@@ -738,7 +739,7 @@ $("showX").addEventListener("change", e => { showX = e.target.checked; cards.for
 async function gh(method, path, tok, body){
   let r;
   try {
-    r = await fetch(`https://api.github.com/repos/${REPO}/${path}`, { method,
+    r = await fetch(`https://api.github.com/repos/${REPO}/${path}`, { method, cache:"no-store",
       headers:Object.assign({ Accept:"application/vnd.github+json", Authorization:"Bearer " + tok, "X-GitHub-Api-Version":"2022-11-28" }, body ? { "Content-Type":"application/json" } : {}),
       body:body ? JSON.stringify(body) : undefined });
   } catch (e) { throw Object.assign(new Error("Couldn't reach GitHub. Check the internet connection and try again."), { status:0 }); }
@@ -757,8 +758,10 @@ async function saveForTeam(){
   if (!tok){ askForKey(); return false; }
   if (!pin){ status("Set a team PIN in Settings first."); return false; }
   if (!staffKey || !coaches.length){ status("Add a coach PIN in Settings first."); return false; }
-  btn.disabled = true; btn.textContent = "Saving…";
-  const done = () => { btn.disabled = false; btn.textContent = "Save for the team"; };
+  if (saving) return false;
+  saving = true; lastSaveError = null; btn.disabled = true; btn.textContent = "Saving…";
+  const done = () => { saving = false; btn.disabled = false; btn.textContent = "Save for the team"; };
+  const seen = changes, before = DATA.rev;
   saveDraft();
   let out;
   try {
@@ -766,7 +769,7 @@ async function saveForTeam(){
       lock:await lockBox({ plays:collectPlays() }, pin),
       staff:await lockBox({ teamPin:pin, token:tok }, staffKey, 1000),
       coaches:coaches.map(c => ({ name:c.name, box:c.box })) };
-  } catch (e){ done(); status("Couldn't lock the playbook with the PIN. Try again."); return false; }
+  } catch (e){ done(); lastSaveError = e; status("Couldn't lock the playbook with the PIN. Try again."); return false; }
   try {
     let cur = null;
     try { cur = await gh("GET", `contents/${DATA_PATH}?ref=${BRANCH}`, tok); } catch (e) { if (e.status !== 404) throw e; }
@@ -776,13 +779,23 @@ async function saveForTeam(){
       if (curRev && DATA.rev && curRev !== DATA.rev) throw new Error("Another coach saved changes a moment ago. Reload the page to get them, then make your change again.");
     }
     await gh("PUT", `contents/${DATA_PATH}`, tok, { message:"Update playbook", content:toB64(enc.encode(JSON.stringify(out))), sha:cur ? cur.sha : undefined, branch:BRANCH });
-  } catch (e){ done(); status(e.message || "Couldn't save. Try again."); return false; }
+  } catch (e){ done(); lastSaveError = e; status(e.message || "Couldn't save. Try again."); return false; }
   DATA = readData(out); teamPin = pin; token = tok;
-  pendingPin = pendingCoaches = pendingToken = null;
-  store.del(DRAFT_KEY); dirty = false; show($("savebar"), false); done();
-  updateSettingsText(); show($("setup-btn"), false);
+  store.set(PUB_KEY, { rev:out.rev, prev:before, at:Date.now() });
   store.set(BRAND_KEY, { logo, title });
-  status("Saved. Everyone sees it in about a minute.", 6000);
+  if (changes === seen){
+    pendingPin = pendingCoaches = pendingToken = null;
+    store.del(DRAFT_KEY); dirty = false; show($("savebar"), false);
+    status("Saved. Everyone sees it in about a minute.", 6000);
+  } else {
+    /* something changed while saving: keep it for the next save */
+    if (pendingPin === pin) pendingPin = null;
+    if (pendingToken === tok) pendingToken = null;
+    if (pendingCoaches === coaches) pendingCoaches = null;
+    saveDraft();
+    status("Saved. You changed more while it was saving, so tap “Save for the team” again.", 8000);
+  }
+  done(); updateSettingsText(); show($("setup-btn"), false);
   return true;
 }
 /* one time only: saving needs a GitHub key, so open Settings at that spot */
@@ -864,12 +877,20 @@ $("coach-set").addEventListener("click", async () => {
   updateSettingsText(); markDirty(); setMsg(`${name} is added. Tap “Save for the team” so their PIN works.`);
 });
 $("token-set").addEventListener("click", async () => {
-  const v = $("token-new").value.trim();
-  if (!v) return;
-  setMsg("Checking the token…");
-  if (!(await checkToken(v))){ setMsg("GitHub didn't accept that key. Make sure ravens-playbook is picked under Repository access, then copy a new key."); return; }
-  pendingToken = v; $("token-new").value = ""; updateSettingsText(); setMsg("");
-  if (dirty) saveForTeam(); else markDirty();
+  const v = $("token-new").value.trim(), btn = $("token-set");
+  if (!v || btn.disabled) return;
+  btn.disabled = true; setMsg("Checking the key…");
+  try {
+    if (!(await checkToken(v))){ setMsg("GitHub didn't accept that key. Make sure ravens-playbook is picked under Repository access, then copy a new key."); return; }
+    pendingToken = v; $("token-new").value = ""; updateSettingsText();
+    if (!dirty){ markDirty(); setMsg("Key is ready. Tap “Save for the team” to use it."); return; }
+    setMsg("Saving…");
+    if (await saveForTeam()) setMsg("Saved. Everyone sees it in about a minute.");
+    else if (lastSaveError && (lastSaveError.status === 401 || lastSaveError.status === 403)){
+      pendingToken = null; updateSettingsText();
+      setMsg("That key can look but not save. Use the link above to make a new key, pick ravens-playbook, and paste it here.");
+    } else setMsg(lastSaveError ? lastSaveError.message : "Couldn't save. Try again.");
+  } finally { btn.disabled = false; }
 });
 $("add").addEventListener("click", () => {
   const id = "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -924,7 +945,9 @@ function start(r){
   staffKey = r.staffKey || null; myBox = r.myBox || null; teamPayload = r.payload;
   let plays = readPlays(r.payload);
   if (editor){
-    const d = store.get(DRAFT_KEY);
+    const d = store.get(DRAFT_KEY), pub = store.get(PUB_KEY);
+    const publishing = pub && pub.prev === DATA.rev && pub.rev !== DATA.rev && Date.now() - num(pub.at, 0) < 15 * 60 * 1000;
+    if (publishing) status("Your last save is still being published. Reload in a minute before you change anything else.", 30000);
     if (d && d.rev === DATA.rev && Array.isArray(d.plays)){
       plays = readPlays(d);
       logo = d.logo === null ? null : (validImg(d.logo) || logo);
@@ -934,7 +957,7 @@ function start(r){
       if (dc.length) pendingCoaches = dc;
       dirty = true;
       applyBranding();
-    } else if (d) store.del(DRAFT_KEY);
+    } else if (d && !publishing) store.del(DRAFT_KEY);
   }
   show($("gate"), false); show($("setup"), false);
   renderPlays(plays);
