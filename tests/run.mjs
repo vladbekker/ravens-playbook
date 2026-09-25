@@ -80,6 +80,18 @@ await page.tap(spot); await wait(80); await page.tap(spot); await wait(400);
 check("double-tap shows a play full screen", await page.ev(`!document.getElementById("fullcard").hidden && !!document.querySelector("#fullcard-body .card")`));
 await page.click("#fullcard-close"); await wait(200);
 check("Close puts the card back", await page.ev(`document.getElementById("fullcard").hidden && !!document.querySelector("#${id} .card")`));
+await page.ev(`document.querySelector("#plays > .play:nth-child(2)").scrollIntoView()`); await wait(500);
+check("the play on screen is highlighted in the menu", await page.ev(`(() => { const on = [...document.querySelectorAll("#jump a.on")];
+  return on.length === 1 && on[0].getAttribute("href") === "#" + document.querySelector("#plays > .play:nth-child(2)").id; })()`));
+await page.size(420, 900); await wait(400);
+check("the play menu stays one row and fades where there are more plays", await page.ev(`(() => { const j = document.getElementById("jump");
+  j.scrollLeft = 0; j.dispatchEvent(new Event("scroll")); return j.getBoundingClientRect().height < 50 && j.classList.contains("more-right") && !j.classList.contains("more-left"); })()`));
+await page.ev(`(() => { const j = document.getElementById("jump"); j.scrollLeft = j.scrollWidth; j.dispatchEvent(new Event("scroll")); })()`); await wait(150);
+check("scrolled to the end, the fade moves to the other side", await page.ev(`(() => { const j = document.getElementById("jump"); return j.classList.contains("more-left") && !j.classList.contains("more-right"); })()`));
+await page.size(1024, 1300); await wait(300);
+check("on wider screens Show X's and Settings sit in the same rows as the plays", await page.ev(`(() => {
+  const chips = [...document.querySelectorAll("#jump a")], tools = document.querySelector(".nav-tools").getBoundingClientRect(), last = chips[chips.length - 1].getBoundingClientRect();
+  return Math.abs((tools.top + tools.bottom) / 2 - (last.top + last.bottom) / 2) < 8 && tools.left > last.right; })()`));
 v = (await openAs("000000"), await view());
 check("a wrong PIN is turned away", v.plays === 0 && /didn't work/.test(v.err), v.err);
 

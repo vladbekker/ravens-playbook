@@ -41,11 +41,21 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 /* play menu that stays at the top while scrolling */
 .navbar{ position:sticky; top:env(safe-area-inset-top, 0px); z-index:4; padding-inline:16px; background:rgba(255,255,255,.92); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
 .nav-in{ max-width:888px; margin:0 auto; display:flex; align-items:center; gap:12px; padding-block:10px; }
-.jump{ flex:1; min-width:0; display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; padding-block:2px; }
+/* one row of plays that scrolls sideways: soft edges show there are more, and the play on screen is highlighted */
+.jump{ position:relative; flex:1; min-width:0; display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; padding-block:2px; overscroll-behavior-x:contain; }
 .jump::-webkit-scrollbar{ display:none; }
-@media (min-width:700px){ .jump{ flex-wrap:wrap; overflow:visible; } }
-.jump a{ flex:none; text-decoration:none; color:var(--ink); font-weight:600; font-size:14px; padding:6px 12px; border-radius:999px; background:var(--accent-soft); white-space:nowrap; }
-.jump a:hover{ background:var(--accent); color:#fff; }
+.jump.more-right{ -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 44px), transparent); mask-image:linear-gradient(to right, #000 calc(100% - 44px), transparent); }
+.jump.more-left{ -webkit-mask-image:linear-gradient(to right, transparent, #000 44px); mask-image:linear-gradient(to right, transparent, #000 44px); }
+.jump.more-left.more-right{ -webkit-mask-image:linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent); mask-image:linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent); }
+.jump a{ flex:none; text-decoration:none; color:var(--ink); font-weight:600; font-size:14px; padding:6px 12px; border-radius:999px; background:var(--accent-soft); white-space:nowrap; transition:background .15s, color .15s; }
+.jump a:hover{ background:#e0daf3; }
+.jump a.on{ background:var(--accent); color:#fff; }
+/* wider screens: the play buttons wrap across the whole width and Show X's / Settings ride along at the end */
+@media (min-width:700px){
+  .nav-in{ flex-wrap:wrap; gap:6px; }
+  .jump{ display:contents; }
+  .nav-tools{ margin-left:auto; }
+}
 .nav-tools{ flex:none; display:flex; gap:8px; }
 
 /* content */
@@ -760,7 +770,35 @@ function layout(){
   const box = $("plays"), jump = $("jump");
   list.forEach((c, i) => { if (box.children[i] !== c.sec) box.insertBefore(c.sec, box.children[i] || null); });
   list.forEach(c => jump.appendChild(c.chip));
+  menuSpy(true); menuEdges();
 }
+/* the play menu is one row: a mouse wheel scrolls it sideways, the edges fade when there's more,
+   and the button for the play on screen lights up and slides into view */
+const jumpEl = $("jump");
+let menuPlay = null, menuQueued = false;
+function menuEdges(){
+  jumpEl.classList.toggle("more-left", jumpEl.scrollLeft > 4);
+  jumpEl.classList.toggle("more-right", jumpEl.scrollLeft + jumpEl.clientWidth < jumpEl.scrollWidth - 4);
+}
+function menuSpy(force){
+  menuQueued = false;
+  const list = [...cards.values()].sort((a, b) => a.order() - b.order());
+  if (!list.length || $("toolbar").hidden) return;
+  const line = $("toolbar").getBoundingClientRect().bottom + 80;
+  const cur = list.find(c => c.sec.getBoundingClientRect().bottom > line) || list[list.length - 1];
+  if (cur === menuPlay && !force) return;
+  menuPlay = cur;
+  list.forEach(c => c.chip.classList.toggle("on", c === cur));
+  const smooth = !(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  jumpEl.scrollTo({ left:cur.chip.offsetLeft - (jumpEl.clientWidth - cur.chip.offsetWidth) / 2, behavior:smooth ? "smooth" : "auto" });
+}
+jumpEl.addEventListener("scroll", menuEdges, { passive:true });
+jumpEl.addEventListener("wheel", e => {
+  if (jumpEl.scrollWidth <= jumpEl.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+  jumpEl.scrollLeft += e.deltaY; e.preventDefault();
+}, { passive:false });
+window.addEventListener("resize", menuEdges);
+window.addEventListener("scroll", () => { if (!menuQueued){ menuQueued = true; requestAnimationFrame(() => menuSpy()); } }, { passive:true });
 /* full screen: the card itself moves into the overlay, so dragging and Flip keep working, then moves back */
 let fullCard = null, fullSpot = null, fullFlip = null;
 function openFull(cardEl, flipBtn){
@@ -958,6 +996,7 @@ function start(r){
   show($("gate"), false);
   renderPlays(plays);
   show($("toolbar"), true);
+  menuSpy(true); menuEdges();
   show($("settings-btn"), editor); show($("add"), editor);
   show($("savebar"), editor && dirty);
   $("knockout").checked = knockout;
