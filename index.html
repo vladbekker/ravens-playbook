@@ -241,7 +241,7 @@ const store = {
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k){ try { localStorage.removeItem(k); } catch (e) {} }
 };
-const BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v1";
+const BRAND_KEY = "playbook-brand-v1", CODE_KEY = "playbook-code-v2", DRAFT_KEY = "playbook-draft-v3", KO_KEY = "playbook-knockout-v1", TRY_KEY = "playbook-tries-v2";
 
 /* Factory versions of the built-in plays: what Reset goes back to until "Save as default" is used */
 const PLAYS = [
@@ -351,26 +351,42 @@ function readData(s){
 }
 
 /* The PIN locks the plays: they're stored scrambled (AES) with a key made from the PIN.
-   The coach code locks a second box holding the team PIN and the saving token. */
+   The coach code locks a second box holding the team PIN and the saving token.
+   Browsers only give https pages their built-in scrambler (crypto.subtle), so on plain http
+   the page loads the same math (PBKDF2 + AES-GCM) from the noble libraries instead. */
 const enc = new TextEncoder();
 function toB64(bytes){ let s = ""; for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768)); return btoa(s); }
 function fromB64(str){ const s = atob(str), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
-async function pinKey(pin, salt, iter){
-  const raw = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:iter, hash:"SHA-256" }, raw, { name:"AES-GCM", length:256 }, false, ["encrypt", "decrypt"]);
+let nobleLib = null;
+function noble(){
+  return nobleLib || (nobleLib = Promise.all([
+    import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/pbkdf2/+esm"),
+    import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/sha256/+esm"),
+    import("https://cdn.jsdelivr.net/npm/@noble/ciphers@1.0.0/aes/+esm")
+  ]).then(([p, h, a]) => ({ pbkdf2:p.pbkdf2Async, sha256:h.sha256, gcm:a.gcm }), () => {
+    nobleLib = null;
+    throw Object.assign(new Error("Couldn't load the unlock code. Check the internet connection and try again."), { offline:true });
+  }));
+}
+async function aesGcm(mode, pin, salt, iter, iv, bytes){
+  if (window.crypto && crypto.subtle){
+    const raw = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:iter, hash:"SHA-256" }, raw, { name:"AES-GCM", length:256 }, false, [mode]);
+    return new Uint8Array(await crypto.subtle[mode]({ name:"AES-GCM", iv }, key, bytes));
+  }
+  const n = await noble();
+  const key = await n.pbkdf2(n.sha256, enc.encode(pin), salt, { c:iter, dkLen:32 });
+  return n.gcm(key, iv)[mode](bytes);
 }
 async function lockBox(obj, pin){
   const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 300000;
-  const key = await pinKey(pin, salt, iter);
-  const data = new Uint8Array(await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, enc.encode(JSON.stringify(obj))));
+  const data = await aesGcm("encrypt", pin, salt, iter, iv, enc.encode(JSON.stringify(obj)));
   return { salt:toB64(salt), iv:toB64(iv), iter, data:toB64(data) };
 }
+/* null means the PIN is wrong; an error with .offline means the unlock code couldn't load */
 async function unlockBox(box, pin){
-  try {
-    const key = await pinKey(pin, fromB64(box.salt), box.iter);
-    const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv:fromB64(box.iv) }, key, fromB64(box.data));
-    return JSON.parse(new TextDecoder().decode(plain));
-  } catch (e) { return null; }
+  try { return JSON.parse(new TextDecoder().decode(await aesGcm("decrypt", pin, fromB64(box.salt), box.iter, fromB64(box.iv), fromB64(box.data)))); }
+  catch (e) { if (e && e.offline) throw e; return null; }
 }
 
 /* ---------- branding: logo and title image ---------- */
@@ -873,15 +889,17 @@ function showGate(){
   setTimeout(() => input.focus(), 60);
   $("gate-form").addEventListener("submit", async e => {
     e.preventDefault();
-    const code = input.value.trim();
+    const code = input.value.replace(/\s+/g, "");
     if (!code || go.disabled) return;
     /* after 5 wrong tries: wait 30 seconds, then 60, 120... */
     const tries = store.get(TRY_KEY) || {};
     const wait = Math.ceil((num(tries.until, 0) - Date.now()) / 1000);
     if (wait > 0){ err.textContent = `Too many tries. Wait ${wait} seconds, then try again.`; return; }
-    go.disabled = true; err.textContent = "";
-    const r = await tryCode(code);
-    go.disabled = false;
+    go.disabled = true; go.textContent = "Checking…"; err.textContent = "";
+    let r;
+    try { r = await tryCode(code); } catch (x) { r = x; }
+    go.disabled = false; go.textContent = "Open playbook";
+    if (r instanceof Error){ err.textContent = r.message; return; }
     if (!r){
       const n = num(tries.n, 0) + 1;
       const secs = n >= 5 ? 30 * Math.pow(2, Math.floor((n - 5) / 5)) : 0;
@@ -919,9 +937,10 @@ show(notice, true);
   show(notice, false);
   if (!DATA.lock && DATA.open){ start({ editor:false, payload:DATA.open, teamPin:null }); return; }
   const saved = store.get(CODE_KEY);
-  const r = typeof saved === "string" && saved ? await tryCode(saved) : null;
+  let r = null, offline = false;
+  if (typeof saved === "string" && saved){ try { r = await tryCode(saved); } catch (x) { offline = true; } }
   if (r) start(r);
-  else { if (saved) store.del(CODE_KEY); showGate(); }
+  else { if (saved && !offline) store.del(CODE_KEY); showGate(); }
 })();
 })();
 </script>
