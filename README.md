@@ -4,6 +4,7 @@ The flag football playbook at **https://marlbororavens.com**.
 
 - **Players** open it with the team PIN. They can drag pieces around on their own screen, flip a play, and double-tap a card to see it full screen.
 - **Coaches** open it with their own coach PIN. They can edit plays, add plays, star plays and save for the team.
+- **Stopwatches** in each card's bottom-right corner show how long the play takes: 1 = quick, 2 = normal, 3 = takes time. Coaches tap them to change the count.
 
 ## How it runs
 
@@ -56,6 +57,7 @@ TEAM_PIN=... npm run playbook -- list                            # every play, i
 npm run playbook -- preview new-plays.json                       # draw plays from a file to check them
 TEAM_PIN=... COACH_PIN=... npm run playbook -- add new-plays.json
 TEAM_PIN=... COACH_PIN=... npm run playbook -- rename <id> New Name
+TEAM_PIN=... COACH_PIN=... npm run playbook -- time "Stick=1" "Four Verticals=3"   # stopwatches, many plays in one save
 npm run playbook -- history                                      # the saved versions the server keeps
 COACH_PIN=... npm run playbook -- restore <rev>                  # bring one back
 npm run playbook -- backup                                       # refresh public/playbook.json from the live site
@@ -85,6 +87,7 @@ npm run playbook -- backup                                       # refresh publi
 - `hi`: draws that player blue, the primary.
 - `gr`: draws that player green, the secondary.
 - `dash` on the thrower: marks the throw.
+- `time` on the play: 1, 2 or 3 stopwatches (1 = quick, 2 = normal, 3 = takes time). Plays added with the tools get 2 if it's left out.
 - A note that starts with "Your run:" marks a play that uses the one run per four downs.
 
 ## Tests
@@ -93,7 +96,7 @@ npm run playbook -- backup                                       # refresh publi
 - Runs the real Worker on your computer (`wrangler dev`, with a throwaway database) using made-up PINs.
 - Uses the page in headless Chrome the way players and coaches do.
 - Checks the players' view, dragging, Flip and full screen.
-- Checks coach saves, stars and the green highlight.
+- Checks coach saves, stars, stopwatches and the green highlight.
 - Checks adding and removing coaches and changing the team PIN.
 - Checks the server's safety rules.
 

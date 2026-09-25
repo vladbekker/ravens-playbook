@@ -48,3 +48,4 @@ This is a summary of the league's rule sheets (2025 Fall rules, grades 2-8), kee
 4. **Near the goal line** and on the 1-point try, we need our best passes, like Spacing and Stick.
 5. **The blitz down** needs a quick throw, like Sprint Out or Hot Potato. It's the only time the QB may run.
 6. **Legal sideways motion** shows man-to-man (a defender follows) versus zone.
+7. **The stopwatches** on each card show how long the play takes. 1 means the ball comes out fast, which is right for the blitz down. 3 means the play needs time to open up, so save it for a down with no rusher.

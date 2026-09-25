@@ -1,5 +1,5 @@
 // Readies designed plays for the book: the team's usual lineup, blue/green kept, only the throw dashed,
-// and any X moved off a route line so the card reads clearly.
+// any X moved off a route line so the card reads clearly, and 2 stopwatches unless the play says otherwise.
 const LINEUP = { "1":[90,262], "2":[190,262], "C":[300,262], "3":[410,262], "4":[510,262], "QB":[300,335] };
 const LABELS = ["1", "2", "C", "3", "4", "RB", "QB"];
 const inX = v => Math.max(20, Math.min(580, Math.round(v))), inY = v => Math.max(30, Math.min(395, Math.round(v)));
@@ -26,5 +26,6 @@ export function prepPlay(p){
   const problems = [];
   for (const l of LABELS) if (players.filter(o => o.l === l).length !== 1) problems.push(`needs exactly one "${l}"`);
   if (players.filter(o => o.t === "X").length !== 7) problems.push("needs 7 X's");
-  return { play:{ id:p.id, name:p.name, note:p.note || "", players, base:null, fav:!!p.fav }, problems };
+  if (p.time !== undefined && ![1, 2, 3].includes(p.time)) problems.push("time should be 1, 2 or 3 stopwatches");
+  return { play:{ id:p.id, name:p.name, note:p.note || "", players, base:null, fav:!!p.fav, time:p.time || 2 }, problems };
 }

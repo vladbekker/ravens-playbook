@@ -56,6 +56,9 @@ const saved = async () => {
 };
 const firstId = () => page.ev(`document.querySelector("#plays > .play").id`);
 const cx = (id, i = 0) => page.ev(`+document.querySelector("#${id} svg g.drag[data-i='${i}'] circle").getAttribute("cx")`);
+const watches = id => page.ev(`document.querySelectorAll("#${id} svg .clock .watch").length`);
+/* where a card's stopwatches sit, in card units (600 wide, the legend line at 410) */
+const clockBox = id => page.ev(`(() => { const b = document.querySelector("#${id} svg .clock").getBBox(); return [b.x, b.y, b.x + b.width, b.y + b.height].map(Math.round).join(); })()`);
 
 /* ---------- players ---------- */
 await openAs(TEAM);
@@ -64,16 +67,23 @@ check("team PIN opens the players' view with every play", v.plays === N && !v.co
 check("players get no coach tools", await page.ev(`!document.querySelectorAll("[id$='-base'], #plays .star").length && document.getElementById("add").hidden`));
 check("old leftovers are gone (setup, Lock, GitHub key)", await page.ev(`!document.getElementById("setup-btn") && !document.getElementById("lock-btn") && !document.getElementById("token-new")`));
 check("each card has the one-line legend", await page.ev(`["us", "them", "throw", "primary", "secondary"].every(w => [...document.querySelectorAll("#plays > .play:first-child svg g text")].some(t => t.textContent === w))`));
+const shown = []; for (const p of plays) shown.push(await watches(p.id));
+check("each card shows its stopwatches: 1 = quick, 3 = takes time", shown.join() === plays.map(p => p.time).join(), shown.join());
+const [cl, ct, cr, cb] = (await clockBox("halfback-pass")).split(",").map(Number);
+check("the stopwatches sit small in the bottom-right corner", cl > 480 && cr <= 590 && ct > 360 && cb < 405 && cb - ct < 30, [cl, ct, cr, cb].join());
+await page.tap(await page.point("#stick svg .clock .watch")); await wait(150);
+check("players can't change the stopwatches", await watches("stick") === 1);
 let id = await firstId(); const x0 = await cx(id);
 await page.drag(`#${id} svg g.drag[data-i='0'] circle`, 60);
 check("players can drag a piece", await cx(id) > x0 && await page.ev(`!document.getElementById("${id}-undo").hidden`));
 await page.click(`#${id}-undo`); await wait(150);
 check("Reset puts it back", await cx(id) === x0);
 let id2 = await page.ev(`document.querySelector("#plays > .play:nth-child(2)").id`);
-const noteBefore = await page.ev(`document.querySelector("#${id2} .note-view").textContent`), f0 = await cx(id2);
+const noteBefore = await page.ev(`document.querySelector("#${id2} .note-view").textContent`), f0 = await cx(id2), clock0 = await clockBox(id2);
 await page.click(`#${id2}-flip`); await wait(150);
 check("Flip mirrors the play and swaps left/right in the note", await cx(id2) === 600 - f0 &&
   await page.ev(`document.querySelector("#${id2} .note-view").textContent`) !== noteBefore);
+check("Flip leaves the stopwatches in their corner", await clockBox(id2) === clock0);
 await page.click(`#${id2}-flip`); await wait(150);
 const spot = await page.point(`#${id} .card`, 0.95, 0.5);
 await page.tap(spot); await wait(80); await page.tap(spot); await wait(400);
@@ -108,13 +118,20 @@ check("a wrong PIN is turned away", v.plays === 0 && /didn't work/.test(v.err), 
 /* ---------- coaches ---------- */
 v = (await openAs(COACH), await view());
 check("coach PIN opens coach view", v.coach && v.plays === N, JSON.stringify(v));
+await page.tap(await page.point("#stick svg .clock .watch")); await wait(150);
+check("a coach taps the stopwatches to change them", await watches("stick") === 2 && await page.ev(`!document.getElementById("savebar").hidden`));
 id2 = await page.ev(`document.querySelector("#plays > .play:nth-child(2)").id`);
 await page.click(`#${id2}-fav`); await page.click("#add"); await wait(300); await page.click("#save");
 check("a coach saves with just the PIN", await saved());
 v = (await openAs(null, { keep:true }), await page.waitFor(`document.querySelectorAll("#plays > .play").length`), await view());
 check("after a reload the new play and the star are there (coach remembered)", v.coach && v.plays === N + 1 && v.stars === 1, JSON.stringify(v));
+check("the stopwatches were saved, and a new play starts with 2", await watches("stick") === 2
+  && await page.ev(`document.querySelectorAll("#plays > .play:last-child svg .clock .watch").length`) === 2);
 await page.click(`#${id2}-fav`); await page.click("#save");
 check("a second save right away works too", await saved());
+const watch = await page.point("#stick svg .clock .watch");
+await page.tap(watch); await wait(80); await page.tap(watch); await wait(400);
+check("a quick double tap on the stopwatches changes them twice and doesn't open full screen", await watches("stick") === 1 && await page.ev(`document.getElementById("fullcard").hidden`));
 id = await firstId();
 await page.tap(await page.point(`#${id} svg g.drag[data-i='0'] circle`)); await wait(250);
 await page.click(`#${id}-gr`); await wait(150);

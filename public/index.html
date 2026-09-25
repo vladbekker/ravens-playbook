@@ -360,7 +360,7 @@ function readPlays(payload){
     const fb = DEFAULTS[p.id] || starter(), c = clean(p, fb);
     return { id:p.id, name:c.name, note:c.note, players:c.players,
       base:p.base && Array.isArray(p.base.players) ? clean(p.base, fb) : null,
-      order:num(p.order, i + 1), fav:p.fav === true };
+      order:num(p.order, i + 1), fav:p.fav === true, time:[1, 2, 3].includes(p.time) ? p.time : 0 };
   });
 }
 function readBox(l){
@@ -555,7 +555,7 @@ function twoTap(btn, label, confirmLabel, action){
 /* ---------- play cards (everyone can move pieces; only coach view edits and saves) ---------- */
 function makeCard(p){
   const id = p.id, fallback = DEFAULTS[id] || starter();
-  let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order, fav = !!p.fav;
+  let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order, fav = !!p.fav, time = p.time || 0;
   const original = copy(play);
   let sel = -1, drag = null, flipped = false;
   /* Flip only changes how the play is drawn (mirrored left to right); the saved play stays as it is */
@@ -622,11 +622,26 @@ function makeCard(p){
     });
     row.setAttribute("transform", `translate(${Math.round((600 - x) / 2)},0)`);
   }
+  /* stopwatches across from the name: 1 = a quick play, 2 = normal, 3 = it takes time. Coaches tap them to change it. */
+  function clock(){
+    if (!time && !editor) return;
+    const n = time || 1, g = E("g", { class:"clock" });
+    E("title", {}, g).textContent = [editor ? "How long this play takes" : "", "Quick play: get the ball out fast", "Normal timing", "Takes time: let the play open up"][time]
+      + (editor ? " (tap to change)" : "");
+    if (editor){ g.setAttribute("cursor", "pointer"); E("rect", { x:572 - n * 26, y:366, width:n * 26 + 18, height:38, fill:"transparent" }, g); }
+    if (!time) g.setAttribute("opacity", ".3");
+    for (let k = 0; k < n; k++){
+      const w = E("g", { class:"watch", transform:`translate(${558 - k * 26},374)` }, g);
+      E("circle", { cx:12, cy:13, r:8.5, fill:"#fff", stroke:INK, "stroke-width":2.2 }, w);
+      E("path", { d:"M9.5,2.5 H14.5 M12,2.5 V4.5 M18.5,6.5 L20,5 M12,13 V8.5", fill:"none", stroke:INK, "stroke-width":2.2, "stroke-linecap":"round" }, w);
+    }
+  }
   function draw(){
     svg.textContent = "";
     E("rect", { x:0, y:0, width:600, height:432, fill:"#fff" });
     E("line", { x1:0, x2:600, y1:LOS, y2:LOS, stroke:"#9aa3a0", "stroke-width":2, "stroke-dasharray":"12 7" });
     T(18, 394, (play.name || "").toUpperCase() + (flipped ? "  (FLIPPED)" : ""), { "font-size":22, "font-weight":800, fill:INK });
+    clock();
     legend();
     play.players.forEach(pl => { if (pl.t === "O" && pl.r && pl.r.length) route(pl); });
     play.players.forEach((pl, i) => {
@@ -686,7 +701,9 @@ function makeCard(p){
     draw();
   };
   const toSvg = e => { const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [mx(q.x), q.y]; };
+  let clockTap = false;
   svg.addEventListener("pointerdown", e => {
+    if (editor && e.target.closest(".clock")){ clockTap = true; time = time % 3 + 1; draw(); markDirty(); return; }
     const g = e.target.closest(".drag");
     if (!g){ if (sel !== -1) select(-1); return; }
     e.preventDefault();
@@ -722,7 +739,7 @@ function makeCard(p){
   let tapAt = 0, tapX = 0, tapY = 0, downX = 0, downY = 0;
   cardEl.addEventListener("pointerdown", e => { downX = e.clientX; downY = e.clientY; });
   cardEl.addEventListener("pointerup", e => {
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10){ tapAt = 0; return; }
+    if (clockTap || Math.hypot(e.clientX - downX, e.clientY - downY) > 10){ clockTap = false; tapAt = 0; return; }
     const now = Date.now();
     if (now - tapAt < 350 && Math.hypot(e.clientX - tapX, e.clientY - tapY) < 40){ tapAt = 0; toggleFull(cardEl, f("flip")); return; }
     tapAt = now; tapX = e.clientX; tapY = e.clientY;
@@ -763,7 +780,7 @@ function makeCard(p){
   fill();
   draw();
   const api = { id, sec, chip, draw, order:() => order,
-    data:() => ({ id, name:play.name, note:play.note || "", players:play.players, base, order, fav }),
+    data:() => ({ id, name:play.name, note:play.note || "", players:play.players, base, order, fav, time }),
     focusName(){ const n = f("name"); if (n){ n.focus({ preventScroll:true }); n.select(); } } };
   cards.set(id, api);
   return api;
@@ -954,7 +971,7 @@ $("coach-set").addEventListener("click", async () => {
 $("add").addEventListener("click", () => {
   const id = "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const s = starter();
-  const c = makeCard({ id, name:s.name, note:s.note, players:s.players, base:null, order:Date.now() });
+  const c = makeCard({ id, name:s.name, note:s.note, players:s.players, base:null, order:Date.now(), time:2 });
   layout(); markDirty();
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   c.sec.scrollIntoView({ behavior:reduce ? "auto" : "smooth", block:"start" });

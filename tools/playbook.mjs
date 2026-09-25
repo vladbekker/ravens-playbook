@@ -18,6 +18,8 @@ const HELP = `Ravens playbook tools   (npm run playbook -- <command>)
   backup                      copy the live playbook into public/playbook.json
   add <plays.json>            add the plays in a file, in the usual lineup (needs TEAM_PIN and COACH_PIN)
   rename <id> <new name>      rename one play (needs TEAM_PIN and COACH_PIN)
+  time <play>=<1-3> ...       set the stopwatches on plays in one save: 1 = quick, 2 = normal, 3 = takes time
+                              e.g. time "Stick=1" "Four Verticals=3" (needs TEAM_PIN and COACH_PIN)
   history                     list the saved versions the server keeps (the last 30)
   restore <rev>               bring back one of those versions (needs COACH_PIN)
   preview <plays.json> [dir]  draw the plays in a file as pictures, to check them before adding (default dir: previews)
@@ -85,7 +87,7 @@ const commands = {
   async list(){
     const payload = await openPlays(await fetchPlaybook(), need("TEAM_PIN"));
     payload.plays.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).forEach((p, i) =>
-      console.log(`${String(i + 1).padStart(2)}. ${p.fav ? "★" : " "} ${p.name}  (${p.id})${/^Your run/i.test(p.note || "") ? "  [run]" : ""}`));
+      console.log(`${String(i + 1).padStart(2)}. ${p.fav ? "★" : " "} ${p.name}  (${p.id})${/^Your run/i.test(p.note || "") ? "  [run]" : ""}  ${"⏱".repeat(p.time || 0)}`));
   },
   backup,
   async add(file){
@@ -107,6 +109,20 @@ const commands = {
     const old = play.name; play.name = name.slice(0, 60);
     await relockAndSave(current, payload);
     console.log(`Renamed "${old}" to "${play.name}"`);
+  },
+  async time(...pairs){
+    if (!pairs.length) throw new Error(`Usage: npm run playbook -- time "Stick=1" "Four Verticals=3"   (1 = quick, 2 = normal, 3 = takes time)`);
+    const current = await fetchPlaybook(), payload = await openPlays(current, need("TEAM_PIN"));
+    const find = key => payload.plays.find(p => p.id === key) || payload.plays.find(p => p.name.toLowerCase() === key.toLowerCase());
+    const changed = pairs.map(pair => {
+      const m = /^(.+?)\s*=\s*([123])$/.exec(pair.trim()), play = m && find(m[1].trim());
+      if (!m) throw new Error(`"${pair}" should look like "Stick=1"`);
+      if (!play) throw new Error(`No play called "${m[1].trim()}". See: npm run playbook -- list`);
+      play.time = +m[2];
+      return play;
+    });
+    await relockAndSave(current, payload);
+    changed.forEach(p => console.log(`${"⏱".repeat(p.time).padEnd(4)}${p.name}`));
   },
   async history(){
     const rows = d1("SELECT rev, saved_at FROM history ORDER BY id DESC");

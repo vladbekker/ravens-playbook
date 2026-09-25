@@ -64,7 +64,7 @@ export async function launch(){
       let clip;
       if (sel) clip = await page.ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); e.scrollIntoView({ block:"center" });
         const r = e.getBoundingClientRect(); return { x:r.left + scrollX, y:r.top + scrollY, width:r.width, height:r.height, scale:1 }; })()`);
-      const r = await send("Page.captureScreenshot", clip ? { format:"png", clip, captureBeyondViewport:true } : { format:"png" });
+      const r = await send("Page.captureScreenshot", clip ? { format:"png", clip, captureBeyondViewport:false } : { format:"png" });   // capturing beyond the viewport drops the scrollbar, which reflows the page under the clip
       writeFileSync(file, Buffer.from(r.result.data, "base64"));
     },
     async close(){ try { ws.close(); } catch {} proc.kill(); await wait(300); rmSync(profile, { recursive:true, force:true }); }
