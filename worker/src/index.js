@@ -41,15 +41,21 @@ async function sha256hex(s){
 export default {
   async fetch(req, env){
     const url = new URL(req.url), origin = req.headers.get("Origin");
+    // the site always lives at https://marlbororavens.com (the workers.dev address is left alone)
+    if (url.hostname.endsWith("marlbororavens.com") && (url.protocol === "http:" || url.hostname !== "marlbororavens.com")){
+      url.protocol = "https:"; url.hostname = "marlbororavens.com";
+      return Response.redirect(url.toString(), 301);
+    }
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(origin) });
-    await setup(env);
 
     if (url.pathname === "/playbook" && req.method === "GET"){
+      await setup(env);
       const cur = await current(env);
       return cur ? reply(cur.data, 200, origin, true) : reply({ error: "missing" }, 404, origin);
     }
 
     if (url.pathname === "/save" && req.method === "POST"){
+      await setup(env);
       let body;
       try { body = await req.json(); } catch { return reply({ error: "bad_request" }, 400, origin); }
       const { key, data, prevRev } = body || {};
@@ -73,6 +79,7 @@ export default {
       return reply({ ok: true, rev: data.rev }, 200, origin);
     }
 
-    return reply({ error: "not_found" }, 404, origin);
+    // everything else is the website itself (index.html and the backup playbook.json)
+    return env.ASSETS.fetch(req);
   }
 };
