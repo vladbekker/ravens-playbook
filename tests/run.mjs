@@ -57,6 +57,8 @@ const saved = async () => {
 const firstId = () => page.ev(`document.querySelector("#plays > .play").id`);
 const cx = (id, i = 0) => page.ev(`+document.querySelector("#${id} svg g.drag[data-i='${i}'] circle").getAttribute("cx")`);
 const watches = id => page.ev(`document.querySelectorAll("#${id} svg .clock .watch").length`);
+/* how many play cards and menu buttons show, as "cards,buttons" */
+const visible = () => page.ev(`[document.querySelectorAll("#plays > .play:not([hidden])").length, document.querySelectorAll("#jump a:not([hidden])").length].join()`);
 /* where a card's stopwatches sit, in card units (600 wide, the legend line at 410) */
 const clockBox = id => page.ev(`(() => { const b = document.querySelector("#${id} svg .clock").getBBox(); return [b.x, b.y, b.x + b.width, b.y + b.height].map(Math.round).join(); })()`);
 
@@ -127,11 +129,18 @@ v = (await openAs(null, { keep:true }), await page.waitFor(`document.querySelect
 check("after a reload the new play and the star are there (coach remembered)", v.coach && v.plays === N + 1 && v.stars === 1, JSON.stringify(v));
 check("the stopwatches were saved, and a new play starts with 2", await watches("stick") === 2
   && await page.ev(`document.querySelectorAll("#plays > .play:last-child svg .clock .watch").length`) === 2);
+await page.click("#favOnly"); await wait(200);
+check("the Favorites switch shows only the starred plays and their menu buttons", await visible() === "1,1", await visible());
+await page.click("#favOnly"); await wait(200);
+check("switched off, every play is back", await visible() === `${N + 1},${N + 1}`, await visible());
 await page.click(`#${id2}-fav`); await page.click("#save");
 check("a second save right away works too", await saved());
 const watch = await page.point("#stick svg .clock .watch");
 await page.tap(watch); await wait(80); await page.tap(watch); await wait(400);
 check("a quick double tap on the stopwatches changes them twice and doesn't open full screen", await watches("stick") === 1 && await page.ev(`document.getElementById("fullcard").hidden`));
+await page.click("#favOnly"); await wait(200);
+check("with nothing starred, the Favorites switch says so and turns itself back off", await visible() === `${N + 1},${N + 1}`
+  && await page.ev(`!document.getElementById("favOnly").checked && /No starred plays/.test(document.getElementById("status").textContent)`));
 id = await firstId();
 await page.tap(await page.point(`#${id} svg g.drag[data-i='0'] circle`)); await wait(250);
 await page.click(`#${id}-gr`); await wait(150);
@@ -158,6 +167,8 @@ await openAs(COACH); await page.click("#settings-btn"); await page.type("#pin-ne
 await page.waitFor(`/New team PIN/.test(document.getElementById("pin-state").textContent)`); await page.click("#save"); await saved();
 v = (await openAs(NEWTEAM), await view());
 check("a new team PIN works", v.plays === N + 1 && !v.coach, JSON.stringify(v));
+await page.click("#favOnly"); await wait(200);
+check("players can switch to Favorites too", await visible() === "1,1", await visible());
 v = (await openAs(TEAM), await view());
 check("the old team PIN stops working", v.plays === 0);
 v = (await openAs(COACH), await view());

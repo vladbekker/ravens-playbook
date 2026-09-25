@@ -3,6 +3,7 @@
 The flag football playbook at **https://marlbororavens.com**.
 
 - **Players** open it with the team PIN. They can drag pieces around on their own screen, flip a play, and double-tap a card to see it full screen.
+- **★ Favorites**, the little switch in the menu bar, shows only the starred plays (for example, the game plan). Everyone can use it.
 - **Coaches** open it with their own coach PIN. They can edit plays, add plays, star plays and save for the team.
 - **Stopwatches** in each card's bottom-right corner show how long the play takes: 1 = quick, 2 = normal, 3 = takes time. Coaches tap them to change the count.
 
@@ -58,6 +59,7 @@ npm run playbook -- preview new-plays.json                       # draw plays fr
 TEAM_PIN=... COACH_PIN=... npm run playbook -- add new-plays.json
 TEAM_PIN=... COACH_PIN=... npm run playbook -- rename <id> New Name
 TEAM_PIN=... COACH_PIN=... npm run playbook -- time "Stick=1" "Four Verticals=3"   # stopwatches, many plays in one save
+TEAM_PIN=... COACH_PIN=... npm run playbook -- favorites "Hot Potato" "Stick"      # star exactly these; the rest lose their star
 npm run playbook -- history                                      # the saved versions the server keeps
 COACH_PIN=... npm run playbook -- restore <rev>                  # bring one back
 npm run playbook -- backup                                       # refresh public/playbook.json from the live site
@@ -95,7 +97,7 @@ npm run playbook -- backup                                       # refresh publi
 `npm test` does the following:
 - Runs the real Worker on your computer (`wrangler dev`, with a throwaway database) using made-up PINs.
 - Uses the page in headless Chrome the way players and coaches do.
-- Checks the players' view, dragging, Flip and full screen.
+- Checks the players' view, dragging, Flip, full screen and the Favorites switch.
 - Checks coach saves, stars, stopwatches and the green highlight.
 - Checks adding and removing coaches and changing the team PIN.
 - Checks the server's safety rules.

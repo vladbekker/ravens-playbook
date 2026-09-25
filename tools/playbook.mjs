@@ -20,6 +20,7 @@ const HELP = `Ravens playbook tools   (npm run playbook -- <command>)
   rename <id> <new name>      rename one play (needs TEAM_PIN and COACH_PIN)
   time <play>=<1-3> ...       set the stopwatches on plays in one save: 1 = quick, 2 = normal, 3 = takes time
                               e.g. time "Stick=1" "Four Verticals=3" (needs TEAM_PIN and COACH_PIN)
+  favorites <play> ...        star exactly these plays, e.g. for a game; the rest lose their star (needs TEAM_PIN and COACH_PIN)
   history                     list the saved versions the server keeps (the last 30)
   restore <rev>               bring back one of those versions (needs COACH_PIN)
   preview <plays.json> [dir]  draw the plays in a file as pictures, to check them before adding (default dir: previews)
@@ -71,6 +72,12 @@ function d1(sql){
   const out = execFileSync("npx", ["wrangler", "d1", "execute", "ravens-playbook", "--remote", "--json", "--command", sql], { cwd:ROOT, encoding:"utf8", maxBuffer:64 * 1024 * 1024, stdio:["ignore", "pipe", "pipe"] });
   return JSON.parse(out)[0].results;
 }
+/* a play by its id, or by its name in any capitals */
+function findPlay(plays, key){
+  const play = plays.find(p => p.id === key) || plays.find(p => p.name.toLowerCase() === key.toLowerCase());
+  if (!play) throw new Error(`No play called "${key}". See: npm run playbook -- list`);
+  return play;
+}
 function readPlaysFile(file){
   const list = JSON.parse(readFileSync(resolve(file), "utf8"));
   const plays = Array.isArray(list) ? list : list.plays;
@@ -113,16 +120,23 @@ const commands = {
   async time(...pairs){
     if (!pairs.length) throw new Error(`Usage: npm run playbook -- time "Stick=1" "Four Verticals=3"   (1 = quick, 2 = normal, 3 = takes time)`);
     const current = await fetchPlaybook(), payload = await openPlays(current, need("TEAM_PIN"));
-    const find = key => payload.plays.find(p => p.id === key) || payload.plays.find(p => p.name.toLowerCase() === key.toLowerCase());
     const changed = pairs.map(pair => {
-      const m = /^(.+?)\s*=\s*([123])$/.exec(pair.trim()), play = m && find(m[1].trim());
+      const m = /^(.+?)\s*=\s*([123])$/.exec(pair.trim());
       if (!m) throw new Error(`"${pair}" should look like "Stick=1"`);
-      if (!play) throw new Error(`No play called "${m[1].trim()}". See: npm run playbook -- list`);
+      const play = findPlay(payload.plays, m[1].trim());
       play.time = +m[2];
       return play;
     });
     await relockAndSave(current, payload);
     changed.forEach(p => console.log(`${"⏱".repeat(p.time).padEnd(4)}${p.name}`));
+  },
+  async favorites(...names){
+    if (!names.length) throw new Error(`Usage: npm run playbook -- favorites "Hot Potato" "Stick" ...   (stars exactly these plays; the rest lose their star)`);
+    const current = await fetchPlaybook(), payload = await openPlays(current, need("TEAM_PIN"));
+    const picked = names.map(n => findPlay(payload.plays, n.trim()));
+    payload.plays.forEach(p => { p.fav = picked.includes(p); });
+    await relockAndSave(current, payload);
+    console.log(`Starred ${picked.length}: ${picked.map(p => p.name).join(", ")}`);
   },
   async history(){
     const rows = d1("SELECT rev, saved_at FROM history ORDER BY id DESC");

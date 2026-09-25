@@ -51,9 +51,18 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 .jump a:hover{ background:#e0daf3; }
 .jump a.on{ background:var(--accent); color:#fff; }
 .nav-tools{ flex:none; display:flex; gap:8px; }
-/* wider screens: the play buttons wrap across the whole width and Show X's / Settings ride along at the end;
+/* little on/off sliders: favorites only, Show X's */
+.switch input{ appearance:none; -webkit-appearance:none; flex:none; position:relative; width:30px; height:18px; margin:0; border-radius:999px; background:#cfc8de; cursor:pointer; transition:background .15s; }
+.switch input::after{ content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(27,21,49,.3); transition:transform .15s; }
+.switch input:checked{ background:var(--accent); }
+.switch input:checked::after{ transform:translateX(12px); }
+.switch .gold{ color:#e0a800; }
+/* phones: short labels (★, X's, ⚙) so the play menu keeps its room */
+@media (max-width:699px){ .nav-tools .wide{ display:none; } .nav-tools .btn{ padding-inline:10px; } .nav-tools .narrow{ font-size:19px; line-height:1; } }
+@media (min-width:700px){ .nav-tools .narrow{ display:none; } }
+/* wider screens: the play buttons wrap across the whole width and the switches / Settings ride along at the end;
    each button stretches a little so every row lines up on both edges, except on the last row, where
-   Show X's / Settings take the spare room so a short row doesn't turn into long bars */
+   the switches / Settings take the spare room so a short row doesn't turn into long bars */
 @media (min-width:700px){
   .nav-in{ flex-wrap:wrap; gap:6px; }
   .jump{ display:contents; }
@@ -161,8 +170,9 @@ input[type=checkbox]{ accent-color:var(--accent); }
   <div class="nav-in">
     <div class="jump" id="jump"></div>
     <div class="nav-tools">
-      <label class="btn" for="showX"><input type="checkbox" id="showX" checked> Show X's</label>
-      <button class="btn" id="settings-btn" type="button" aria-expanded="false" aria-controls="settings" hidden>Settings</button>
+      <label class="btn switch" for="favOnly" title="Show only the starred plays"><input type="checkbox" id="favOnly" role="switch"> <span class="gold">★</span><span class="wide">Favorites</span></label>
+      <label class="btn switch" for="showX"><input type="checkbox" id="showX" role="switch" checked> <span><span class="wide">Show </span>X's</span></label>
+      <button class="btn" id="settings-btn" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings" hidden><span class="narrow" aria-hidden="true">⚙</span><span class="wide">Settings</span></button>
     </div>
   </div>
 </nav>
@@ -524,7 +534,7 @@ async function readUpload(file, maxSide, allWhite){
 let DATA = { rev:"", logo:null, title:null, lock:null, staff:null, coaches:[], open:null };
 let editor = false, teamPin = null, staffKey = null, myBox = null;
 let saving = false, changes = 0;
-let pendingPin = null, pendingCoaches = null, dirty = false, showX = true, draftTimer = null;
+let pendingPin = null, pendingCoaches = null, dirty = false, showX = true, favOnly = false, draftTimer = null;
 const cards = new Map();
 function status(t, ms){
   const s = $("status");
@@ -765,7 +775,7 @@ function makeCard(p){
     });
     f("done").addEventListener("click", () => select(-1));
     f("name").addEventListener("input", e => { play.name = e.target.value; chip.textContent = (fav ? "★ " : "") + (play.name || "Untitled"); draw(); markDirty(); });
-    f("fav").addEventListener("click", () => { fav = !fav; fill(); markDirty(); });
+    f("fav").addEventListener("click", () => { fav = !fav; fill(); markDirty(); if (favOnly) layout(); });
     f("note").addEventListener("input", e => { play.note = e.target.value; markDirty(); });
     f("base").addEventListener("click", e => {
       base = clean(play, fallback); markDirty();
@@ -779,7 +789,7 @@ function makeCard(p){
 
   fill();
   draw();
-  const api = { id, sec, chip, draw, order:() => order,
+  const api = { id, sec, chip, draw, order:() => order, fav:() => fav,
     data:() => ({ id, name:play.name, note:play.note || "", players:play.players, base, order, fav, time }),
     focusName(){ const n = f("name"); if (n){ n.focus({ preventScroll:true }); n.select(); } } };
   cards.set(id, api);
@@ -788,8 +798,10 @@ function makeCard(p){
 function layout(){
   const list = [...cards.values()].sort((a, b) => a.order() - b.order());
   const box = $("plays"), jump = $("jump");
+  /* "Favorites" on: only the starred plays and their menu buttons show (it switches itself off if nothing is starred) */
+  if (favOnly && !list.some(c => c.fav())){ favOnly = false; $("favOnly").checked = false; }
   list.forEach((c, i) => { if (box.children[i] !== c.sec) box.insertBefore(c.sec, box.children[i] || null); });
-  list.forEach(c => jump.appendChild(c.chip));
+  list.forEach(c => { jump.appendChild(c.chip); const on = !favOnly || c.fav(); show(c.sec, on); show(c.chip, on); });
   menuSpy(true); menuEdges();
 }
 /* the play menu is one row: a mouse wheel scrolls it sideways, the edges fade when there's more,
@@ -802,7 +814,7 @@ function menuEdges(){
 }
 function menuSpy(force){
   menuQueued = false;
-  const list = [...cards.values()].sort((a, b) => a.order() - b.order());
+  const list = [...cards.values()].filter(c => !c.sec.hidden).sort((a, b) => a.order() - b.order());
   if (!list.length || $("toolbar").hidden) return;
   const line = $("toolbar").getBoundingClientRect().bottom + 80;
   const cur = list.find(c => c.sec.getBoundingClientRect().bottom > line) || list[list.length - 1];
@@ -849,6 +861,15 @@ function renderPlays(plays){
   layout();
 }
 $("showX").addEventListener("change", e => { showX = e.target.checked; cards.forEach(c => c.draw()); });
+/* Favorites: the play you're reading stays where it is if it's still shown; otherwise back to the top */
+$("favOnly").addEventListener("change", e => {
+  favOnly = e.target.checked;
+  if (favOnly && ![...cards.values()].some(c => c.fav())) status("No starred plays yet.", 3000);
+  const cur = $("plays").getBoundingClientRect().top < 0 ? menuPlay : null, top = cur && cur.sec.getBoundingClientRect().top;
+  layout();
+  if (cur && !cur.sec.hidden) scrollBy(0, cur.sec.getBoundingClientRect().top - top);
+  else if (cur) scrollTo(0, 0);
+});
 
 /* ---------- saving: coaches save through the playbook server ---------- */
 async function saveForTeam(){
@@ -971,6 +992,7 @@ $("coach-set").addEventListener("click", async () => {
 $("add").addEventListener("click", () => {
   const id = "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const s = starter();
+  if (favOnly){ favOnly = false; $("favOnly").checked = false; }   // the new play isn't starred yet, so show everything
   const c = makeCard({ id, name:s.name, note:s.note, players:s.players, base:null, order:Date.now(), time:2 });
   layout(); markDirty();
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
