@@ -92,6 +92,16 @@ await page.size(1024, 1300); await wait(300);
 check("on wider screens Show X's and Settings sit in the same rows as the plays", await page.ev(`(() => {
   const chips = [...document.querySelectorAll("#jump a")], tools = document.querySelector(".nav-tools").getBoundingClientRect(), last = chips[chips.length - 1].getBoundingClientRect();
   return Math.abs((tools.top + tools.bottom) / 2 - (last.top + last.bottom) / 2) < 8 && tools.left > last.right; })()`));
+check("on wider screens every row of play buttons lines up on both edges, and the last row keeps its normal size", await page.ev(`(() => {
+  const jump = document.getElementById("jump"), tools = document.querySelector(".nav-tools"), extra = [];
+  for (let i = 0; i < 8; i++) for (const a of [...jump.querySelectorAll("a")].slice(0, 3)) extra.push(jump.appendChild(a.cloneNode(true)));
+  try {
+    const box = document.querySelector(".nav-in").getBoundingClientRect(), rows = [];
+    for (const el of [...jump.querySelectorAll("a"), tools]){ const r = el.getBoundingClientRect(), mid = (r.top + r.bottom) / 2, row = rows.find(x => Math.abs(x.mid - mid) < 10); row ? row.els.push(el) : rows.push({ mid, els:[el] }); }
+    const normal = a => { const r = document.createRange(); r.selectNodeContents(a); return r.getBoundingClientRect().width + 24; };
+    return rows.length > 2 && rows.every(({ els }) => Math.abs(els[0].getBoundingClientRect().left - box.left) < 2 && Math.abs(els[els.length - 1].getBoundingClientRect().right - box.right) < 2
+      && (!els.includes(tools) || els.every(el => el === tools || el.getBoundingClientRect().width - normal(el) < 3)));
+  } finally { extra.forEach(a => a.remove()); } })()`));
 v = (await openAs("000000"), await view());
 check("a wrong PIN is turned away", v.plays === 0 && /didn't work/.test(v.err), v.err);
 

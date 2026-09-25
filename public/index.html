@@ -50,13 +50,16 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 .jump a{ flex:none; text-decoration:none; color:var(--ink); font-weight:600; font-size:14px; padding:6px 12px; border-radius:999px; background:var(--accent-soft); white-space:nowrap; transition:background .15s, color .15s; }
 .jump a:hover{ background:#e0daf3; }
 .jump a.on{ background:var(--accent); color:#fff; }
-/* wider screens: the play buttons wrap across the whole width and Show X's / Settings ride along at the end */
+.nav-tools{ flex:none; display:flex; gap:8px; }
+/* wider screens: the play buttons wrap across the whole width and Show X's / Settings ride along at the end;
+   each button stretches a little so every row lines up on both edges, except on the last row, where
+   Show X's / Settings take the spare room so a short row doesn't turn into long bars */
 @media (min-width:700px){
   .nav-in{ flex-wrap:wrap; gap:6px; }
   .jump{ display:contents; }
-  .nav-tools{ margin-left:auto; }
+  .jump a{ flex:1 1 auto; text-align:center; }
+  .nav-tools{ flex:1000 0 auto; justify-content:flex-end; }
 }
-.nav-tools{ flex:none; display:flex; gap:8px; }
 
 /* content */
 .wrap{ max-width:920px; margin:0 auto; padding-inline:16px; padding-block:24px 120px; display:grid; gap:20px; }
