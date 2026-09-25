@@ -248,7 +248,7 @@ const API = "https://ravens-playbook.ravens-playbook-api.workers.dev";
 
 const NS = "http://www.w3.org/2000/svg";
 const FONT = "system-ui,-apple-system,sans-serif";
-const INK = "#16201a", BLUE = "#1d5fd1", RED = "#c62828", LOS = 243;
+const INK = "#16201a", BLUE = "#1d5fd1", GREEN = "#15943e", RED = "#c62828", LOS = 243;
 const $ = id => document.getElementById(id);
 const show = (el, on) => el.toggleAttribute("hidden", !on);
 const copy = o => JSON.parse(JSON.stringify(o));
@@ -352,6 +352,7 @@ function clean(s, def){
       }) : null;
       if (o.r && !o.r.length) o.r = null;
       if (p.hi) o.hi = true;
+      else if (p.gr) o.gr = true;
       if (p.dash) o.dash = true;
     }
     return o;
@@ -593,6 +594,7 @@ function makeCard(p){
   <label for="${id}-lab">Label <input type="text" id="${id}-lab" maxlength="8"></label>
   <label for="${id}-dash"><input type="checkbox" id="${id}-dash"> Dashed</label>
   <label for="${id}-hi"><input type="checkbox" id="${id}-hi"> Blue</label>
+  <label for="${id}-gr"><input type="checkbox" id="${id}-gr"> Green</label>
   <button class="btn" id="${id}-arrow" type="button">Remove arrow</button>
   <span class="spacer"></span>
   <button class="btn" id="${id}-done" type="button">Done</button>
@@ -609,7 +611,7 @@ function makeCard(p){
   const T = (x, y, s, a) => { const t = E("text", Object.assign({ x, y, "font-family":FONT }, a)); t.textContent = s; return t; };
   function route(pl){
     const pts = [[mx(pl.x), pl.y]].concat(pl.r.map(q => [mx(q[0]), q[1]].concat(q.slice(2)))), n = pts.length;
-    const color = pl.hi ? BLUE : INK, w = pl.hi ? 4 : 3;
+    const color = pl.hi ? BLUE : pl.gr ? GREEN : INK, w = pl.hi || pl.gr ? 4 : 3;
     const a = pts[n - 2], b = pts[n - 1];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
     for (let i = 1; i < n; i++){
@@ -632,7 +634,7 @@ function makeCard(p){
       if (pl.t === "X" && !showX) return;
       const g = E("g", { class:"drag", "data-kind":"player", "data-i":i });
       if (pl.t === "O"){
-        E("circle", { cx:mx(pl.x), cy:pl.y, r:17, fill:"#fff", stroke:pl.hi ? BLUE : INK, "stroke-width":3 }, g);
+        E("circle", { cx:mx(pl.x), cy:pl.y, r:17, fill:"#fff", stroke:pl.hi ? BLUE : pl.gr ? GREEN : INK, "stroke-width":3 }, g);
         const l = pl.l || "", size = l.length <= 1 ? 16 : l.length <= 2 ? 13 : l.length <= 4 ? 11 : 9;
         const t = E("text", { x:mx(pl.x), y:pl.y + size * 0.36, "text-anchor":"middle", "font-size":size, "font-weight":800, fill:INK, "font-family":FONT }, g);
         t.textContent = l;
@@ -678,6 +680,7 @@ function makeCard(p){
         f("lab").value = pl.l || "";
         f("dash").checked = !!pl.dash;
         f("hi").checked = !!pl.hi;
+        f("gr").checked = !!pl.gr;
         f("arrow").textContent = pl.r && pl.r.length ? "Remove arrow" : "Add arrow";
       }
     }
@@ -725,7 +728,10 @@ function makeCard(p){
     const cur = () => play.players[sel];
     f("lab").addEventListener("input", e => { if (!cur()) return; cur().l = e.target.value; draw(); markDirty(); });
     f("dash").addEventListener("change", e => { if (!cur()) return; cur().dash = e.target.checked; draw(); markDirty(); });
-    f("hi").addEventListener("change", e => { if (!cur()) return; cur().hi = e.target.checked; draw(); markDirty(); });
+    /* a player is blue or green (or neither), never both */
+    const tint = (on, off) => e => { const pl = cur(); if (!pl) return; pl[on] = e.target.checked; if (e.target.checked){ delete pl[off]; f(off).checked = false; } draw(); markDirty(); };
+    f("hi").addEventListener("change", tint("hi", "gr"));
+    f("gr").addEventListener("change", tint("gr", "hi"));
     f("arrow").addEventListener("click", () => {
       const pl = cur(); if (!pl) return;
       pl.r = pl.r && pl.r.length ? null : [[pl.x, clamp(pl.y - 60, 4, 406)], [clamp(pl.x + 70, 4, 596), clamp(pl.y - 120, 4, 406)]];
