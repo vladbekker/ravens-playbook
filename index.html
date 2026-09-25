@@ -56,6 +56,9 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 .top{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
 .name{ flex:1 1 220px; min-width:0; font-family:var(--display); font-size:34px; line-height:1.05; letter-spacing:.03em; color:var(--hero-1); background:transparent; border:1px solid transparent; border-radius:8px; padding:2px 8px; margin-left:-9px; }
 .name:hover, .name:focus{ border-color:var(--line); background:var(--page); outline:none; }
+.star{ flex:none; font-size:30px; line-height:1; padding:0 4px; margin-left:-6px; background:none; border:0; cursor:pointer; color:#bdb6cf; }
+.star:hover, .star.on{ color:#e0a800; }
+.star-view{ flex:none; font-size:30px; line-height:1; margin-right:4px; color:#e0a800; }
 .play-name{ margin:0; font-family:var(--display); font-weight:400; font-size:34px; line-height:1.05; letter-spacing:.03em; color:var(--hero-1); }
 .note{ width:100%; font:inherit; font-size:15px; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:8px; padding:6px 8px; resize:vertical; }
 .note:hover, .note:focus{ border-color:var(--line); background:var(--page); color:var(--ink); outline:none; }
@@ -346,7 +349,7 @@ function readPlays(payload){
     const fb = DEFAULTS[p.id] || starter(), c = clean(p, fb);
     return { id:p.id, name:c.name, note:c.note, players:c.players,
       base:p.base && Array.isArray(p.base.players) ? clean(p.base, fb) : null,
-      order:num(p.order, i + 1) };
+      order:num(p.order, i + 1), fav:p.fav === true };
   });
 }
 function readBox(l){
@@ -557,12 +560,12 @@ function twoTap(btn, label, confirmLabel, action){
 /* ---------- play cards (everyone can move pieces; only coach view edits and saves) ---------- */
 function makeCard(p){
   const id = p.id, fallback = DEFAULTS[id] || starter();
-  let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order;
+  let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order, fav = !!p.fav;
   const original = copy(play);
   let sel = -1, drag = null;
   const sec = document.createElement("section");
   sec.className = "play"; sec.id = id;
-  sec.innerHTML = editor ? `<div class="top"><input class="name" id="${id}-name" aria-label="Play name">
+  sec.innerHTML = editor ? `<div class="top"><button class="star" id="${id}-fav" type="button" aria-label="Favorite play" aria-pressed="false">☆</button><input class="name" id="${id}-name" aria-label="Play name">
   <button class="btn btn-quiet" id="${id}-base" type="button">Save as default</button>
   <button class="btn btn-quiet" id="${id}-reset" type="button">Reset</button>
   <button class="btn btn-quiet btn-del" id="${id}-del" type="button">Delete</button></div>
@@ -575,7 +578,7 @@ function makeCard(p){
   <button class="btn" id="${id}-arrow" type="button">Remove arrow</button>
   <span class="spacer"></span>
   <button class="btn" id="${id}-done" type="button">Done</button>
-</div>` : `<div class="top"><h2 class="play-name"></h2><span class="spacer"></span><button class="btn btn-quiet" id="${id}-undo" type="button" hidden>Reset</button></div><p class="note-view"></p>
+</div>` : `<div class="top"><span class="star-view" title="Favorite" hidden>★</span><h2 class="play-name"></h2><span class="spacer"></span><button class="btn btn-quiet" id="${id}-undo" type="button" hidden>Reset</button></div><p class="note-view"></p>
 <div class="card"><svg viewBox="0 0 600 410" role="img" aria-label="Play card with X's and O's"></svg></div>`;
   $("plays").appendChild(sec);
   const svg = sec.querySelector("svg"), bar = sec.querySelector(".bar");
@@ -630,13 +633,16 @@ function makeCard(p){
     });
   }
   function fill(){
-    chip.textContent = play.name || "Untitled";
+    chip.textContent = (fav ? "★ " : "") + (play.name || "Untitled");
     if (editor){
+      const st = f("fav");
+      st.textContent = fav ? "★" : "☆"; st.classList.toggle("on", fav); st.setAttribute("aria-pressed", String(fav));
       const n = f("name"), t = f("note");
       if (document.activeElement !== n) n.value = play.name;
       if (document.activeElement !== t) t.value = play.note || "";
     } else {
       sec.querySelector(".play-name").textContent = play.name || "Untitled";
+      show(sec.querySelector(".star-view"), fav);
       const nv = sec.querySelector(".note-view");
       nv.textContent = play.note || "";
       show(nv, !!play.note);
@@ -702,7 +708,8 @@ function makeCard(p){
       select(sel); markDirty();
     });
     f("done").addEventListener("click", () => select(-1));
-    f("name").addEventListener("input", e => { play.name = e.target.value; chip.textContent = play.name || "Untitled"; draw(); markDirty(); });
+    f("name").addEventListener("input", e => { play.name = e.target.value; chip.textContent = (fav ? "★ " : "") + (play.name || "Untitled"); draw(); markDirty(); });
+    f("fav").addEventListener("click", () => { fav = !fav; fill(); markDirty(); });
     f("note").addEventListener("input", e => { play.note = e.target.value; markDirty(); });
     f("base").addEventListener("click", e => {
       base = clean(play, fallback); markDirty();
@@ -717,7 +724,7 @@ function makeCard(p){
   fill();
   draw();
   const api = { id, sec, chip, draw, order:() => order,
-    data:() => ({ id, name:play.name, note:play.note || "", players:play.players, base, order }),
+    data:() => ({ id, name:play.name, note:play.note || "", players:play.players, base, order, fav }),
     focusName(){ const n = f("name"); if (n){ n.focus({ preventScroll:true }); n.select(); } } };
   cards.set(id, api);
   return api;
