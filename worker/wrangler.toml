@@ -1,0 +1,12 @@
+name = "ravens-playbook"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# where the playbook comes from before the first coach save
+SEED_URL = "https://marlbororavens.com/playbook.json"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ravens-playbook"
+database_id = "b39b18d7-1520-467c-9bec-dabf6dfb4f14"
