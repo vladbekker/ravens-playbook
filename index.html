@@ -1001,8 +1001,10 @@ show(notice, true);
   const saved = store.get(CODE_KEY);
   let r = null, offline = false;
   if (typeof saved === "string" && saved){ try { r = await tryCode(saved); } catch (x) { offline = true; } }
-  if (r) start(r);
-  else { if (saved && !offline) store.del(CODE_KEY); showGate(); }
+  /* marlbororavens.com/#coach always asks, so a coach can switch from a remembered team PIN */
+  const wantsCoach = location.hash === "#coach" && r && !r.editor;
+  if (r && !wantsCoach) start(r);
+  else { if (saved && !offline && !wantsCoach) store.del(CODE_KEY); showGate(); }
 })();
 })();
 </script>
