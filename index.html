@@ -539,10 +539,11 @@ function twoTap(btn, label, confirmLabel, action){
   });
 }
 
-/* ---------- play cards (editable only in coach view) ---------- */
+/* ---------- play cards (everyone can move pieces; only coach view edits and saves) ---------- */
 function makeCard(p){
   const id = p.id, fallback = DEFAULTS[id] || starter();
   let play = { name:p.name, note:p.note, players:p.players }, base = p.base || null, order = p.order;
+  const original = copy(play);
   let sel = -1, drag = null;
   const sec = document.createElement("section");
   sec.className = "play"; sec.id = id;
@@ -559,7 +560,7 @@ function makeCard(p){
   <button class="btn" id="${id}-arrow" type="button">Remove arrow</button>
   <span class="spacer"></span>
   <button class="btn" id="${id}-done" type="button">Done</button>
-</div>` : `<h2 class="play-name"></h2><p class="note-view"></p>
+</div>` : `<div class="top"><h2 class="play-name"></h2><span class="spacer"></span><button class="btn btn-quiet" id="${id}-undo" type="button" hidden>Reset</button></div><p class="note-view"></p>
 <div class="card"><svg viewBox="0 0 600 410" role="img" aria-label="Play card with X's and O's"></svg></div>`;
   $("plays").appendChild(sec);
   const svg = sec.querySelector("svg"), bar = sec.querySelector(".bar");
@@ -593,7 +594,7 @@ function makeCard(p){
     play.players.forEach(pl => { if (pl.t === "O" && pl.r && pl.r.length) route(pl); });
     play.players.forEach((pl, i) => {
       if (pl.t === "X" && !showX) return;
-      const g = E("g", editor ? { class:"drag", "data-kind":"player", "data-i":i } : {});
+      const g = E("g", { class:"drag", "data-kind":"player", "data-i":i });
       if (pl.t === "O"){
         E("circle", { cx:pl.x, cy:pl.y, r:17, fill:"#fff", stroke:pl.hi ? BLUE : INK, "stroke-width":3 }, g);
         const l = pl.l || "", size = l.length <= 1 ? 16 : l.length <= 2 ? 13 : l.length <= 4 ? 11 : 9;
@@ -605,7 +606,7 @@ function makeCard(p){
       }
     });
     const s = play.players[sel];
-    if (!editor || !s || (s.t === "X" && !showX)) return;
+    if (!s || (s.t === "X" && !showX)) return;
     E("circle", { cx:s.x, cy:s.y, r:24, fill:"none", stroke:BLUE, "stroke-width":2.5, "stroke-dasharray":"5 4" });
     if (s.t === "O") (s.r || []).forEach((q, k) => {
       const g = E("g", { class:"drag", "data-kind":"pt", "data-k":k });
@@ -627,10 +628,11 @@ function makeCard(p){
     }
   }
 
-  if (editor){
-    const select = i => {
-      sel = i;
-      const pl = play.players[i];
+  /* players can move pieces too, just on their own screen; Reset puts the play back */
+  const select = i => {
+    sel = i;
+    const pl = play.players[i];
+    if (editor){
       show(bar, !!(pl && pl.t === "O"));
       if (pl && pl.t === "O"){
         f("lab").value = pl.l || "";
@@ -638,40 +640,43 @@ function makeCard(p){
         f("hi").checked = !!pl.hi;
         f("arrow").textContent = pl.r && pl.r.length ? "Remove arrow" : "Add arrow";
       }
-      draw();
-    };
-    const toSvg = e => { const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; };
-    svg.addEventListener("pointerdown", e => {
-      const g = e.target.closest(".drag");
-      if (!g){ if (sel !== -1) select(-1); return; }
-      e.preventDefault();
-      const [x, y] = toSvg(e);
-      if (g.dataset.kind === "player"){
-        const i = +g.dataset.i;
-        if (i !== sel) select(i);
-        drag = { kind:"player", i, x0:x, y0:y, orig:copy(play.players[i]) };
-      } else drag = { kind:"pt", k:+g.dataset.k };
-      svg.setPointerCapture(e.pointerId);
-    });
-    svg.addEventListener("pointermove", e => {
-      if (!drag) return;
-      const [x, y] = toSvg(e);
-      if (drag.kind === "player"){
-        const pl = play.players[drag.i], o = drag.orig;
-        pl.x = clamp(o.x + x - drag.x0, 18, 582);
-        pl.y = clamp(o.y + y - drag.y0, 18, 392);
-        if (o.r) pl.r = o.r.map(q => [clamp(q[0] + pl.x - o.x, 4, 596), clamp(q[1] + pl.y - o.y, 4, 406)].concat(q.slice(2)));
-      } else {
-        const r = play.players[sel].r, q = r[drag.k];
-        r[drag.k] = [clamp(x, 4, 596), clamp(y, 4, 406)].concat(q.slice(2));
-      }
-      draw();
-    });
-    const stop = () => { if (drag){ drag = null; markDirty(); } };
-    svg.addEventListener("pointerup", stop);
-    svg.addEventListener("pointercancel", stop);
-    svg.addEventListener("touchstart", e => { if (e.target.closest(".drag")) e.preventDefault(); }, { passive:false });
+    }
+    draw();
+  };
+  const toSvg = e => { const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y]; };
+  svg.addEventListener("pointerdown", e => {
+    const g = e.target.closest(".drag");
+    if (!g){ if (sel !== -1) select(-1); return; }
+    e.preventDefault();
+    const [x, y] = toSvg(e);
+    if (g.dataset.kind === "player"){
+      const i = +g.dataset.i;
+      if (i !== sel) select(i);
+      drag = { kind:"player", i, x0:x, y0:y, orig:copy(play.players[i]) };
+    } else drag = { kind:"pt", k:+g.dataset.k };
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const [x, y] = toSvg(e);
+    if (drag.kind === "player"){
+      const pl = play.players[drag.i], o = drag.orig;
+      pl.x = clamp(o.x + x - drag.x0, 18, 582);
+      pl.y = clamp(o.y + y - drag.y0, 18, 392);
+      if (o.r) pl.r = o.r.map(q => [clamp(q[0] + pl.x - o.x, 4, 596), clamp(q[1] + pl.y - o.y, 4, 406)].concat(q.slice(2)));
+    } else {
+      const r = play.players[sel].r, q = r[drag.k];
+      r[drag.k] = [clamp(x, 4, 596), clamp(y, 4, 406)].concat(q.slice(2));
+    }
+    draw();
+  });
+  const stop = () => { if (drag){ drag = null; if (editor) markDirty(); else show(f("undo"), true); } };
+  svg.addEventListener("pointerup", stop);
+  svg.addEventListener("pointercancel", stop);
+  svg.addEventListener("touchstart", e => { if (e.target.closest(".drag")) e.preventDefault(); }, { passive:false });
+  if (!editor) f("undo").addEventListener("click", () => { play = copy(original); select(-1); show(f("undo"), false); });
 
+  if (editor){
     const cur = () => play.players[sel];
     f("lab").addEventListener("input", e => { if (!cur()) return; cur().l = e.target.value; draw(); markDirty(); });
     f("dash").addEventListener("change", e => { if (!cur()) return; cur().dash = e.target.checked; draw(); markDirty(); });
