@@ -66,6 +66,13 @@ h1 .t2{ font-size:clamp(18px, 3.8vw, 28px); letter-spacing:.2em; margin-right:-.
 .note:hover, .note:focus{ border-color:var(--line); background:var(--page); color:var(--ink); outline:none; }
 .note-view{ margin:0; color:var(--muted); max-width:70ch; }
 .card{ background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.card{ touch-action:manipulation; }
+/* one play filling the screen (double-tap a card) */
+.fullcard{ position:fixed; inset:0; z-index:20; background:#fff; display:flex; flex-direction:column; gap:8px; padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.fullcard-tools{ display:flex; justify-content:flex-end; gap:8px; }
+.fullcard-body{ flex:1; min-height:0; display:grid; place-items:center; }
+.fullcard .card{ width:min(100%, calc((100vh - 76px) * 600 / 410)); width:min(100%, calc((100dvh - 76px) * 600 / 410)); border:none; }
+body.full-open{ overflow:hidden; }
 .card svg{ display:block; width:100%; height:auto; user-select:none; -webkit-user-select:none; }
 .drag{ cursor:grab; touch-action:none; }
 .bar{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:10px 12px; background:var(--page); border:1px solid var(--line); border-radius:12px; }
@@ -227,6 +234,10 @@ input[type=checkbox]{ accent-color:var(--accent); }
   <div class="plays" id="plays"></div>
   <button class="btn btn-add" id="add" type="button" hidden>+ Add a play</button>
 </main>
+<div class="fullcard" id="fullcard" hidden>
+  <div class="fullcard-tools"><button class="btn" id="fullcard-flip" type="button">Flip ⇆</button><button class="btn" id="fullcard-close" type="button">✕ Close</button></div>
+  <div class="fullcard-body" id="fullcard-body"></div>
+</div>
 <div class="savebar" id="savebar" hidden>
   <span>You have changes the team can&rsquo;t see yet.</span>
   <span class="spacer"></span>
@@ -721,6 +732,16 @@ function makeCard(p){
   svg.addEventListener("pointercancel", stop);
   svg.addEventListener("touchstart", e => { if (e.target.closest(".drag")) e.preventDefault(); }, { passive:false });
   if (!editor) f("undo").addEventListener("click", () => { play = copy(original); select(-1); show(f("undo"), false); });
+  /* double-tap (or double-click) the card to see it full screen */
+  const cardEl = sec.querySelector(".card");
+  let tapAt = 0, tapX = 0, tapY = 0, downX = 0, downY = 0;
+  cardEl.addEventListener("pointerdown", e => { downX = e.clientX; downY = e.clientY; });
+  cardEl.addEventListener("pointerup", e => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10){ tapAt = 0; return; }
+    const now = Date.now();
+    if (now - tapAt < 350 && Math.hypot(e.clientX - tapX, e.clientY - tapY) < 40){ tapAt = 0; toggleFull(cardEl, f("flip")); return; }
+    tapAt = now; tapX = e.clientX; tapY = e.clientY;
+  });
   f("flip").addEventListener("click", () => {
     flipped = !flipped;
     const b = f("flip"); b.classList.toggle("on", flipped); b.setAttribute("aria-pressed", String(flipped));
@@ -768,7 +789,31 @@ function layout(){
   list.forEach((c, i) => { if (box.children[i] !== c.sec) box.insertBefore(c.sec, box.children[i] || null); });
   list.forEach(c => jump.appendChild(c.chip));
 }
+/* full screen: the card itself moves into the overlay, so dragging and Flip keep working, then moves back */
+let fullCard = null, fullSpot = null, fullFlip = null;
+function openFull(cardEl, flipBtn){
+  const ov = $("fullcard");
+  fullSpot = document.createComment("card"); cardEl.replaceWith(fullSpot); $("fullcard-body").appendChild(cardEl);
+  fullCard = cardEl; fullFlip = flipBtn; show(ov, true); document.body.classList.add("full-open");
+  const enter = ov.requestFullscreen || ov.webkitRequestFullscreen;
+  if (enter) try { const r = enter.call(ov); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+}
+function closeFull(){
+  if (!fullCard) return;
+  fullSpot.replaceWith(fullCard); fullCard = fullSpot = fullFlip = null;
+  show($("fullcard"), false); document.body.classList.remove("full-open");
+  if (document.fullscreenElement || document.webkitFullscreenElement){
+    const leave = document.exitFullscreen || document.webkitExitFullscreen;
+    try { const r = leave && leave.call(document); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+  }
+}
+function toggleFull(cardEl, flipBtn){ if (fullCard) closeFull(); else openFull(cardEl, flipBtn); }
+$("fullcard-close").addEventListener("click", closeFull);
+$("fullcard-flip").addEventListener("click", () => { if (fullFlip) fullFlip.click(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeFull(); });
+["fullscreenchange", "webkitfullscreenchange"].forEach(n => document.addEventListener(n, () => { if (!(document.fullscreenElement || document.webkitFullscreenElement)) closeFull(); }));
 function renderPlays(plays){
+  closeFull();
   $("plays").textContent = ""; $("jump").textContent = ""; cards.clear();
   plays.forEach(makeCard);
   layout();
