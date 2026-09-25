@@ -112,7 +112,7 @@ input[type=checkbox]{ accent-color:var(--accent); }
 .savebar{ position:fixed; left:0; right:0; bottom:0; z-index:5; display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background:#fff; border-top:1px solid var(--line); box-shadow:0 -8px 24px rgba(27,21,49,.12); font-weight:600; }
 :focus-visible{ outline:3px solid var(--accent); outline-offset:2px; }
 /* hidden for now: the team only needs to open and view the playbook */
-#setup-btn, #lock-btn{ display:none !important; }
+#setup-btn, #lock-btn, #saving-group{ display:none !important; }
 .brand-wait .mark, .brand-wait .mark-img, .brand-wait .t1, .brand-wait .title-img, .brand-wait .hero-mark{ visibility:hidden; }
 .text-input{ font:inherit; font-size:15px; padding:9px 12px; width:24em; max-width:100%; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
 .text-input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
@@ -198,7 +198,7 @@ input[type=checkbox]{ accent-color:var(--accent); }
       </div>
       <p class="msg" id="coach-state"></p>
     </div>
-    <div class="set-group">
+    <div class="set-group" id="saving-group">
       <h2>Saving</h2>
       <p class="msg" id="token-state"></p>
       <p class="msg"><a href="https://github.com/settings/personal-access-tokens/new?name=Ravens+playbook&amp;description=Lets+coaches+save+plays+on+marlbororavens.com&amp;expires_in=366&amp;contents=write" target="_blank" rel="noopener">Get a saving key from GitHub</a>. On that page, under <b>Repository access</b>, choose <b>Only select repositories</b> and pick <b>ravens-playbook</b>, then click <b>Generate token</b> and copy it. The key lasts a year.</p>
@@ -212,7 +212,7 @@ input[type=checkbox]{ accent-color:var(--accent); }
   </section>
   <section class="gate" id="gate" aria-labelledby="gate-title" hidden>
     <h2 id="gate-title">Team PIN</h2>
-    <p>Players: enter the team PIN. Coaches: enter your coach PIN.</p>
+    <p>Enter the team PIN to open the playbook.</p>
     <form class="gate-form" id="gate-form">
       <input class="pin-input" id="gate-pin" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="24" aria-label="Team PIN or coach code">
       <button class="btn btn-primary" id="gate-go" type="submit">Open playbook</button>
@@ -232,9 +232,14 @@ input[type=checkbox]{ accent-color:var(--accent); }
 </div>
 <script>
 (() => {
+/* the claude.ai copy keeps its page markup in a <template> so it can publish itself again */
+const tplEl = document.getElementById("app-tpl"), APP_MARKUP = tplEl ? tplEl.innerHTML : "";
+if (tplEl) tplEl.replaceWith(tplEl.content.cloneNode(true));
 "use strict";
 /* The shared playbook is playbook.json in this site's GitHub repo; coaches save by updating that file. */
 const REPO = "vladbekker/ravens-playbook", DATA_PATH = "playbook.json", BRANCH = "main";
+/* true only in the claude.ai copy: coaches edit there and it saves by publishing itself; the website only shows plays */
+const EDITOR_BUILD = false;
 
 const NS = "http://www.w3.org/2000/svg";
 const FONT = "system-ui,-apple-system,sans-serif";
@@ -762,7 +767,7 @@ async function checkToken(tok){
 async function saveForTeam(){
   const btn = $("save");
   const tok = pendingToken || token, pin = pendingPin || teamPin, coaches = pendingCoaches || DATA.coaches;
-  if (!tok){ askForKey(); return false; }
+  if (!tok && !EDITOR_BUILD){ askForKey(); return false; }
   if (!pin){ status("Set a team PIN in Settings first."); return false; }
   if (!staffKey || !coaches.length){ status("Add a coach PIN in Settings first."); return false; }
   if (saving) return false;
@@ -777,6 +782,13 @@ async function saveForTeam(){
       staff:await lockBox({ teamPin:pin, token:tok }, staffKey, 1000),
       coaches:coaches.map(c => ({ name:c.name, box:c.box })) };
   } catch (e){ done(); lastSaveError = e; status("Couldn't lock the playbook with the PIN. Try again."); return false; }
+  if (EDITOR_BUILD){
+    /* the claude.ai copy saves by publishing itself with the new data; every open copy reloads to it */
+    store.del(DRAFT_KEY);
+    try { await publishHere(out); }
+    catch (e){ saveDraft(); done(); lastSaveError = e; status(e.message, 12000); return false; }
+    return true;
+  }
   try {
     let cur = null;
     try { cur = await gh("GET", `contents/${DATA_PATH}?ref=${BRANCH}`, tok); } catch (e) { if (e.status !== 404) throw e; }
@@ -804,6 +816,34 @@ async function saveForTeam(){
   }
   done(); updateSettingsText(); show($("setup-btn"), false);
   return true;
+}
+const PAGE_HEAD = `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Ravens Marlboro Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=block" rel="stylesheet">`;
+const SCRIPT = "scr" + "ipt";
+/* the whole page again, from its own markup, style and code, with the new playbook data inside */
+function buildPage(data){
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return `<!doctype html>\n<html lang="en">\n<head>\n${PAGE_HEAD}\n<style id="app-style">${$("app-style").textContent}</style>\n</head>\n<body>\n`
+    + `<template id="app-tpl">${APP_MARKUP}</template>\n<${SCRIPT} type="application/json" id="state">${json}</${SCRIPT}>\n`
+    + `<${SCRIPT} id="app-js">${$("app-js").textContent}</${SCRIPT}>\n</body>\n</html>\n`;
+}
+async function publishHere(data){
+  const artifact = window.claude && window.claude.use ? await window.claude.use("artifact") : null;
+  if (!artifact) throw new Error("Saving only works in the claude.ai playbook.");
+  try { await artifact.publish(buildPage(data)); }
+  catch (e){
+    const code = e && e.code;
+    throw new Error(code === "conflict" ? "Someone else saved first. The page is reloading with their version; make your change again."
+      : code === "not_writer" || code === "not_granted" || code === "consent_required" ? "Only the playbook's owner can save here."
+      : code === "too_large" ? "The playbook got too big to save. Try smaller logo images."
+      : code === "rate_limited" ? "Saving too often. Wait a minute, then try again."
+      : "Couldn't save. Try again.");
+  }
 }
 /* one time only: saving needs a GitHub key, so open Settings at that spot */
 function askForKey(){
@@ -948,7 +988,7 @@ async function tryCode(code){
   return null;
 }
 function start(r){
-  editor = !!r.editor; teamPin = r.teamPin || null; coachCode = r.coachCode || null; token = r.token || null;
+  editor = !!r.editor && EDITOR_BUILD; teamPin = r.teamPin || null; coachCode = r.coachCode || null; token = r.token || null;
   staffKey = r.staffKey || null; myBox = r.myBox || null; teamPayload = r.payload;
   let plays = readPlays(r.payload);
   if (editor){
@@ -1020,7 +1060,9 @@ notice.textContent = "Loading the playbook…";
 show(notice, true);
 (async () => {
   let raw = null;
-  try { const res = await fetch(`${DATA_PATH}?t=${Date.now()}`, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
+  const embedded = document.getElementById("state");
+  if (embedded){ try { raw = JSON.parse(embedded.textContent); } catch (e) {} }
+  else try { const res = await fetch(`${DATA_PATH}?t=${Date.now()}`, { cache:"no-store" }); if (res.ok) raw = await res.json(); } catch (e) {}
   if (!raw){ brandReady(); notice.textContent = "Couldn't load the playbook. Check the internet connection and reload the page."; return; }
   DATA = readData(raw);
   logo = DATA.logo; title = DATA.title;
