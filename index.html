@@ -629,6 +629,9 @@ function makeCard(p){
     E("line", { x1:0, x2:600, y1:LOS, y2:LOS, stroke:"#9aa3a0", "stroke-width":2, "stroke-dasharray":"12 7" });
     T(18, 394, (play.name || "").toUpperCase() + (flipped ? "  (FLIPPED)" : ""), { "font-size":22, "font-weight":800, fill:INK });
     T(582, 393, "O = us   X = them   - - - = throw", { "font-size":13, fill:"#6b7570", "text-anchor":"end" });
+    const key = T(582, 374, "", { "font-size":13, fill:"#6b7570", "text-anchor":"end" });
+    [["Blue", BLUE], [" = primary   ", null], ["Green", GREEN], [" = secondary", null]]
+      .forEach(([t, c]) => { E("tspan", c ? { fill:c, "font-weight":800 } : {}, key).textContent = t; });
     play.players.forEach(pl => { if (pl.t === "O" && pl.r && pl.r.length) route(pl); });
     play.players.forEach((pl, i) => {
       if (pl.t === "X" && !showX) return;
